@@ -1,0 +1,2 @@
+# Keep uploads folder tracked by git
+# Real zip files and uploads are ignored via root .gitignore

@@ -1,0 +1,2 @@
+# Keep generated folder tracked by git
+# Generated outputs are ignored via root .gitignore
