@@ -23,25 +23,31 @@ def _write_source(tmp_path, relative_path, content):
 def _fake_response(**overrides):
     defaults = dict(
         refactored_code="def f(a: int) -> int:\n    return a\n",
-        reason="Add type hints",
-        expected_benefit="Better tooling support",
-        risk_level="low",
+        summary="Add type hints",
+        benefit="Better tooling support",
+        risk="low",
         breaking_changes=[],
         migration_notes=[],
         assumptions=[],
+        impact_areas=[],
     )
     defaults.update(overrides)
     return RefactorProposalResponse(**defaults)
 
 
-def test_risk_level_rejects_invalid_values():
+def test_risk_rejects_invalid_values():
     with pytest.raises(ValidationError):
         RefactorProposalResponse(
             refactored_code="x",
-            reason="x",
-            expected_benefit="x",
-            risk_level="extreme",
+            summary="x",
+            benefit="x",
+            risk="extreme",
         )
+
+
+def test_impact_areas_rejects_values_outside_fixed_categories():
+    with pytest.raises(ValidationError):
+        _fake_response(impact_areas=["Something not on the list"])
 
 
 def test_generate_refactor_for_file_returns_none_for_trivial_file(tmp_path):
@@ -73,7 +79,7 @@ def test_generate_refactor_for_file_includes_real_source_in_prompt(tmp_path, mon
     assert "distinctive_marker_fn" in seen_prompt["prompt"]
 
 
-def test_generate_refactor_for_file_always_requires_human_review(tmp_path, monkeypatch):
+def test_generate_refactor_for_file_always_requires_human_review_and_keeps_original(tmp_path, monkeypatch):
     _configure_gemini(monkeypatch)
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
@@ -84,9 +90,11 @@ def test_generate_refactor_for_file_always_requires_human_review(tmp_path, monke
     proposal, warning = refactor_service.generate_refactor_for_file(tmp_path, file)
 
     assert warning is None
-    assert proposal.human_review_required is True
-    assert proposal.original_file == "app/mod.py"
-    assert proposal.risk_level == "low"
+    assert proposal.id
+    assert proposal.requires_human_review is True
+    assert proposal.path == "app/mod.py"
+    assert proposal.risk == "low"
+    assert proposal.original_code == source
 
 
 def test_generate_refactor_for_file_returns_warning_on_failure(tmp_path, monkeypatch):
@@ -132,7 +140,7 @@ def test_generate_refactors_for_project_skips_files_with_syntax_errors(tmp_path,
     proposals, _warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
     assert len(proposals) == 1
-    assert proposals[0].original_file == "app/good.py"
+    assert proposals[0].path == "app/good.py"
 
 
 def test_generate_refactors_for_project_continues_when_one_file_fails(tmp_path, monkeypatch):
@@ -155,5 +163,5 @@ def test_generate_refactors_for_project_continues_when_one_file_fails(tmp_path, 
     proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
     assert len(proposals) == 1
-    assert proposals[0].original_file == "app/b.py"
+    assert proposals[0].path == "app/b.py"
     assert any("app/a.py" in w and "generation failed" in w for w in warnings)

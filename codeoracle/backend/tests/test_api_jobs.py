@@ -144,20 +144,40 @@ def test_download_includes_generated_test_and_refactor_files(api_client, job_dir
         },
         "explanation": {},
         "dependency_graph": {"nodes": [], "edges": []},
-        "generated_tests": [
-            {
-                "target_file": "app/mod.py",
-                "filename": "test_mod.py",
-                "code": "def test_f():\n    assert True\n",
-                "covered_functions": ["f"],
-            }
-        ],
+        "generated_tests": {
+            "framework": "pytest",
+            "coverage": {"value": 50.0, "label": "estimated"},
+            "covered_functions": 1,
+            "breakdown": {"happy_path": 1, "edge_case": 0, "error_case": 0, "mocked_dependency": 0},
+            "files": [
+                {
+                    "id": "t1",
+                    "target_file": "app/mod.py",
+                    "language": "python",
+                    "framework": "pytest",
+                    "filename": "test_mod.py",
+                    "code": "def test_f():\n    assert True\n",
+                    "covered_functions": ["f"],
+                    "types": ["happy_path"],
+                    "assumptions": [],
+                }
+            ],
+        },
         "refactored_files": [
             {
-                "original_file": "app/mod.py",
+                "id": "r1",
+                "path": "app/mod.py",
+                "language": "python",
                 "refactored_code": "def f() -> None:\n    pass\n",
-                "reason": "add types",
-                "risk_level": "low",
+                "original_code": "def f():\n    pass\n",
+                "summary": "add types",
+                "benefit": "clearer intent",
+                "risk": "low",
+                "breaking_changes": [],
+                "migration_notes": [],
+                "assumptions": [],
+                "impact_areas": [],
+                "requires_human_review": True,
             }
         ],
         "warnings": [],
@@ -170,6 +190,9 @@ def test_download_includes_generated_test_and_refactor_files(api_client, job_dir
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = archive.namelist()
     assert "generated_tests/00_test_mod.py" in names
+    assert "generated_tests/summary.json" in names
     assert "refactored/app__mod.py" in names
+    assert "refactored/original/app__mod.py" in names
     assert archive.read("generated_tests/00_test_mod.py").decode() == "def test_f():\n    assert True\n"
     assert archive.read("refactored/app__mod.py").decode() == "def f() -> None:\n    pass\n"
+    assert archive.read("refactored/original/app__mod.py").decode() == "def f():\n    pass\n"

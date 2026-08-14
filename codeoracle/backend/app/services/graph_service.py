@@ -103,6 +103,8 @@ def js_external_package_name(module: str) -> str:
 
 
 def _module_node(file: FileAnalysis) -> GraphNode:
+    function_count = len(file.functions) + sum(len(cls.methods) for cls in file.classes)
+    is_entry_point = file.has_main_guard or "default" in file.exports
     return GraphNode(
         id=file.module,
         label=file.module,
@@ -110,6 +112,9 @@ def _module_node(file: FileAnalysis) -> GraphNode:
         language=file.language,
         path=file.path,
         external=False,
+        is_entry_point=is_entry_point,
+        function_count=function_count,
+        class_count=len(file.classes),
     )
 
 
@@ -152,7 +157,7 @@ def build_dependency_graph(analysis: CodebaseAnalysis) -> DependencyGraph:
                     continue
                 external_id = python_external_package_name(imp.module)
                 nodes.setdefault(external_id, _external_node(external_id, "python"))
-                add_edge(module, external_id, "imports")
+                add_edge(module, external_id, "external")
 
             elif file.language == "javascript":
                 if imp.is_relative:
@@ -164,7 +169,7 @@ def build_dependency_graph(analysis: CodebaseAnalysis) -> DependencyGraph:
                 else:
                     external_id = js_external_package_name(imp.module)
                     nodes.setdefault(external_id, _external_node(external_id, "javascript"))
-                    add_edge(module, external_id, "imports")
+                    add_edge(module, external_id, "external")
 
     # calls: only for names that resolve to an internal module via this
     # file's own confirmed imports, so we never invent a target.

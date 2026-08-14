@@ -1,14 +1,22 @@
 import json
+import uuid
 
 from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis, FileAnalysis, FunctionInfo
-from app.models.tests import GeneratedTestFile, GeneratedTestResponse
+from app.models.tests import (
+    CoverageInfo,
+    GeneratedTestFile,
+    GeneratedTestResponse,
+    GeneratedTestsResult,
+    TypeBreakdown,
+)
 from app.services.gemini_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
 NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); test generation was skipped."
 
 MAX_FUNCTIONS_PER_FILE = 8
+TEST_TYPES = ("happy_path", "edge_case", "error_case", "mocked_dependency")
 
 TEST_TASK_TEMPLATE = (
     "Write a complete {framework} test file for the source file described in "
@@ -19,9 +27,10 @@ TEST_TASK_TEMPLATE = (
     "rather than performing them for real. Add a short comment wherever you "
     "must assume behavior that isn't fully certain from the facts alone. "
     "Return the complete test file source as a single string in `code`, a "
-    "`filename` for it following {framework} conventions, and "
+    "`filename` for it following {framework} conventions, "
     "`covered_functions` listing every function/method name your tests "
-    "actually exercise."
+    "actually exercise, and `types` listing which of "
+    "happy_path/edge_case/error_case/mocked_dependency your tests include."
 )
 
 
@@ -94,30 +103,68 @@ def generate_tests_for_file(file: FileAnalysis, *, framework: str) -> tuple[Gene
 
     return (
         GeneratedTestFile(
+            id=uuid.uuid4().hex[:10],
             target_file=file.path,
             language=file.language,
-            test_framework=framework,
+            framework=framework,
             filename=result.filename,
             code=result.code,
             covered_functions=result.covered_functions,
+            types=result.types,
             assumptions=result.assumptions,
-            coverage_label="estimated",
-            estimated_coverage_percent=_estimate_coverage_percent(file, priority_functions),
         ),
         None,
     )
 
 
-def generate_tests_for_project(analysis: CodebaseAnalysis) -> tuple[list[GeneratedTestFile], list[str]]:
-    """Generate estimated-coverage test files for every analyzable source file.
+def _aggregate_framework(files: list[GeneratedTestFile]) -> str:
+    seen: list[str] = []
+    for file in files:
+        if file.framework not in seen:
+            seen.append(file.framework)
+    return " + ".join(seen)
 
-    We never execute uploaded code on this host, so coverage here is always
+
+def _aggregate_coverage(files: list[GeneratedTestFile], analysis: CodebaseAnalysis) -> CoverageInfo:
+    if not files:
+        return CoverageInfo(value=None, label="not_executed")
+
+    files_by_path = {file.target_file: file for file in files}
+    percentages = []
+    for source_file in analysis.files:
+        test_file = files_by_path.get(source_file.path)
+        if test_file is None:
+            continue
+        targeted = [f for f in select_priority_functions(source_file) if f.name in test_file.covered_functions]
+        percentages.append(_estimate_coverage_percent(source_file, targeted))
+
+    value = round(sum(percentages) / len(percentages), 1) if percentages else None
+    return CoverageInfo(value=value, label="estimated")
+
+
+def _aggregate_covered_functions(files: list[GeneratedTestFile]) -> int:
+    unique_names = {name for file in files for name in file.covered_functions}
+    return len(unique_names)
+
+
+def _aggregate_breakdown(files: list[GeneratedTestFile]) -> TypeBreakdown:
+    counts = dict.fromkeys(TEST_TYPES, 0)
+    for file in files:
+        for test_type in file.types:
+            counts[test_type] = counts.get(test_type, 0) + 1
+    return TypeBreakdown(**counts)
+
+
+def generate_tests_for_project(analysis: CodebaseAnalysis) -> tuple[GeneratedTestsResult, list[str]]:
+    """Generate estimated-coverage tests for every analyzable source file.
+
+    We never execute uploaded code on this host, so coverage is always
     labeled "estimated" (based on which lines the targeted functions span),
     never "measured" - only our own backend's benchmark suite is trusted
     enough to run and get real coverage numbers.
     """
     if not _is_gemini_configured():
-        return [], [NOT_CONFIGURED_WARNING]
+        return GeneratedTestsResult(), [NOT_CONFIGURED_WARNING]
 
     generated: list[GeneratedTestFile] = []
     warnings: list[str] = []
@@ -133,4 +180,11 @@ def generate_tests_for_project(analysis: CodebaseAnalysis) -> tuple[list[Generat
         if warning:
             warnings.append(f"{file.path}: {warning}")
 
-    return generated, warnings
+    result = GeneratedTestsResult(
+        framework=_aggregate_framework(generated),
+        coverage=_aggregate_coverage(generated, analysis),
+        covered_functions=_aggregate_covered_functions(generated),
+        breakdown=_aggregate_breakdown(generated),
+        files=generated,
+    )
+    return result, warnings

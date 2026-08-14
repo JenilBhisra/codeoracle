@@ -9,6 +9,8 @@ from pathlib import Path
 
 from app.core.config import GENERATED_DIR, UPLOADS_DIR, settings
 from app.core.exceptions import CodeOracleError
+from app.models.explanation import ProjectExplanation
+from app.models.graph import DependencyGraph
 from app.models.job import PROGRESS_BY_STATUS, JobRecord, JobStatus
 from app.services.analyzer_service import analyze_codebase
 from app.services.explanation_service import explain_project
@@ -20,6 +22,9 @@ from app.services.upload_service import process_zip_source
 from app.utils.cleanup import cleanup_dir
 
 logger = logging.getLogger(__name__)
+
+_HIGH_SEVERITY_HINTS = ("syntax error",)
+_MEDIUM_SEVERITY_HINTS = ("not configured", "unresolved", "excluded", "skipped", "failed", "could not")
 
 _jobs: dict[str, JobRecord] = {}
 _lock = threading.Lock()
@@ -58,6 +63,36 @@ def _fail_job(job_id: str, error_message: str) -> None:
         record.message = "Analysis failed"
         record.error = error_message
         record.updated_at = datetime.now(timezone.utc)
+
+
+def _warning_level(message: str) -> str:
+    lowered = message.lower()
+    if any(hint in lowered for hint in _HIGH_SEVERITY_HINTS):
+        return "high"
+    if any(hint in lowered for hint in _MEDIUM_SEVERITY_HINTS):
+        return "medium"
+    return "low"
+
+
+def _structure_warnings(messages: list[str]) -> list[dict]:
+    return [{"level": _warning_level(message), "message": message, "path": None} for message in messages]
+
+
+def _merge_explanation_into_graph(graph: DependencyGraph, explanation: ProjectExplanation) -> None:
+    """Copy narrative details onto graph nodes so the graph tab isn't bare.
+
+    Both representations describe the same modules, computed at different
+    pipeline stages; this is a cheap post-processing merge rather than
+    threading explanation state through graph_service itself.
+    """
+    modules_by_id = {module.id: module for module in explanation.modules}
+    for node in graph.nodes:
+        module = modules_by_id.get(node.id)
+        if module is None:
+            continue
+        node.summary = module.purpose
+        if module.risk == "high":
+            node.risk_notes = [f"Module risk assessed as high: {module.purpose or 'see explanation tab'}"]
 
 
 def job_upload_dir(job_id: str) -> Path:
@@ -111,6 +146,7 @@ def run_job_pipeline(
 
         _update_job(job_id, status=JobStatus.EXPLAINING, message="Generating explanations")
         explanation = explain_project(codebase, graph)
+        _merge_explanation_into_graph(graph, explanation)
 
         _update_job(job_id, status=JobStatus.GENERATING_TESTS, message="Generating tests")
         generated_tests, test_warnings = generate_tests_for_project(codebase)
@@ -118,7 +154,7 @@ def run_job_pipeline(
         _update_job(job_id, status=JobStatus.REFACTORING, message="Generating refactor proposals")
         refactor_proposals, refactor_warnings = generate_refactors_for_project(codebase, extract_dir)
 
-        warnings = (
+        warnings = _structure_warnings(
             codebase.warnings + graph.warnings + explanation.warnings + test_warnings + refactor_warnings
         )
         results = {
@@ -131,10 +167,12 @@ def run_job_pipeline(
                 "line_count": codebase.line_count,
                 "module_count": len(codebase.files),
                 "dependency_count": len(graph.edges),
+                "generated_test_count": len(generated_tests.files),
+                "coverage": generated_tests.coverage.model_dump(),
             },
             "explanation": explanation.model_dump(),
             "dependency_graph": graph.model_dump(),
-            "generated_tests": [t.model_dump() for t in generated_tests],
+            "generated_tests": generated_tests.model_dump(),
             "refactored_files": [p.model_dump() for p in refactor_proposals],
             "warnings": warnings,
         }

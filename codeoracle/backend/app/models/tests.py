@@ -1,4 +1,9 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+TestType = Literal["happy_path", "edge_case", "error_case", "mocked_dependency"]
+CoverageLabel = Literal["measured", "estimated", "not_executed"]
 
 
 class GeneratedTestResponse(BaseModel):
@@ -7,16 +12,37 @@ class GeneratedTestResponse(BaseModel):
     filename: str
     code: str
     covered_functions: list[str] = Field(default_factory=list)
+    types: list[TestType] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
 
 
 class GeneratedTestFile(BaseModel):
+    id: str
+    filename: str
     target_file: str
     language: str
-    test_framework: str
-    filename: str
-    code: str
+    framework: str
     covered_functions: list[str] = Field(default_factory=list)
+    types: list[TestType] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
-    coverage_label: str = "estimated"  # "measured" | "estimated" | "not_executed"
-    estimated_coverage_percent: float | None = None
+    code: str
+
+
+class CoverageInfo(BaseModel):
+    value: float | None = None
+    label: CoverageLabel = "not_executed"
+
+
+class TypeBreakdown(BaseModel):
+    happy_path: int = 0
+    edge_case: int = 0
+    error_case: int = 0
+    mocked_dependency: int = 0
+
+
+class GeneratedTestsResult(BaseModel):
+    framework: str = ""
+    coverage: CoverageInfo = Field(default_factory=CoverageInfo)
+    covered_functions: int = 0
+    breakdown: TypeBreakdown = Field(default_factory=TypeBreakdown)
+    files: list[GeneratedTestFile] = Field(default_factory=list)

@@ -4,27 +4,52 @@ from pydantic import BaseModel, Field
 
 RiskLevel = Literal["low", "medium", "high"]
 
+ImpactArea = Literal[
+    "Function names",
+    "Parameters",
+    "Return types",
+    "Exceptions",
+    "Class names",
+    "Module paths",
+    "Imports",
+    "Data formats",
+    "Sync/async behavior",
+    "Environment variables",
+    "Configuration",
+    "Side effects",
+    "External API contracts",
+]
+
 
 class RefactorProposalResponse(BaseModel):
-    """Shape Gemini must return for one file's refactor proposal."""
+    """Shape Gemini must return - narrative and judgment only.
+
+    `original_code` isn't asked of Gemini at all: we already have the real
+    source on disk, so we attach it ourselves rather than trust a model to
+    echo it back verbatim.
+    """
 
     refactored_code: str
-    reason: str
-    expected_benefit: str
-    risk_level: RiskLevel
+    summary: str
+    benefit: str
+    risk: RiskLevel
     breaking_changes: list[str] = Field(default_factory=list)
     migration_notes: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
+    impact_areas: list[ImpactArea] = Field(default_factory=list)
 
 
 class RefactorProposal(BaseModel):
-    original_file: str
+    id: str
+    path: str
     language: str
-    refactored_code: str
-    reason: str
-    expected_benefit: str
-    risk_level: RiskLevel
+    risk: RiskLevel
+    summary: str
+    benefit: str
     breaking_changes: list[str] = Field(default_factory=list)
     migration_notes: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
-    human_review_required: bool = True
+    impact_areas: list[str] = Field(default_factory=list)
+    requires_human_review: bool = True
+    original_code: str = ""
+    refactored_code: str

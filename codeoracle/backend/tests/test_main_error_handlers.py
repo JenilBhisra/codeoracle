@@ -11,7 +11,7 @@ def test_handle_codeoracle_error_returns_sanitized_400():
     response = asyncio.run(handle_codeoracle_error(Mock(), exc))
 
     assert response.status_code == 400
-    assert response.body == b'{"error":"Something specific went wrong."}'
+    assert response.body == b'{"detail":"Something specific went wrong."}'
 
 
 def test_handle_unexpected_error_returns_generic_500_without_leaking_details():
@@ -22,4 +22,4 @@ def test_handle_unexpected_error_returns_generic_500_without_leaking_details():
 
     assert response.status_code == 500
     assert b"raw internal secret detail" not in response.body
-    assert response.body == b'{"error":"An unexpected error occurred."}'
+    assert response.body == b'{"detail":"An unexpected error occurred."}'

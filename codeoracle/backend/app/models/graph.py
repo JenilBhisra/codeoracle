@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+EdgeConfidence = Literal["confirmed", "uncertain"]
 
 
 class GraphNode(BaseModel):
@@ -8,13 +12,19 @@ class GraphNode(BaseModel):
     language: str | None = None
     path: str | None = None
     external: bool = False
+    is_entry_point: bool = False
+    function_count: int = 0
+    class_count: int = 0
+    summary: str = ""
+    risk_notes: list[str] = Field(default_factory=list)
 
 
 class GraphEdge(BaseModel):
     id: str
     source: str
     target: str
-    type: str  # "imports" | "calls"
+    type: str  # "imports" | "calls" | "external"
+    confidence: EdgeConfidence = "confirmed"
 
 
 class DependencyGraph(BaseModel):

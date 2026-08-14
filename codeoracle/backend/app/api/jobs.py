@@ -75,19 +75,29 @@ def download_job_results(job_id: str) -> StreamingResponse:
         zf.writestr("dependency_graph.json", json.dumps(data.get("dependency_graph", {}), indent=2))
         zf.writestr("warnings.json", json.dumps(data.get("warnings", []), indent=2))
 
+        generated_tests = data.get("generated_tests", {})
+        test_files = generated_tests.get("files", [])
         test_manifest = []
-        for index, test_file in enumerate(data.get("generated_tests", [])):
+        for index, test_file in enumerate(test_files):
             filename = test_file.get("filename") or f"test_{index}"
             zf.writestr(f"generated_tests/{index:02d}_{filename}", test_file.get("code", ""))
             test_manifest.append({k: v for k, v in test_file.items() if k != "code"})
+        zf.writestr(
+            "generated_tests/summary.json",
+            json.dumps({k: v for k, v in generated_tests.items() if k != "files"}, indent=2),
+        )
         zf.writestr("generated_tests/manifest.json", json.dumps(test_manifest, indent=2))
 
         refactor_manifest = []
         for proposal in data.get("refactored_files", []):
-            original = proposal.get("original_file", "file")
-            safe_name = original.replace("/", "__")
+            path = proposal.get("path", "file")
+            safe_name = path.replace("/", "__")
             zf.writestr(f"refactored/{safe_name}", proposal.get("refactored_code", ""))
-            refactor_manifest.append({k: v for k, v in proposal.items() if k != "refactored_code"})
+            if proposal.get("original_code"):
+                zf.writestr(f"refactored/original/{safe_name}", proposal["original_code"])
+            refactor_manifest.append(
+                {k: v for k, v in proposal.items() if k not in ("refactored_code", "original_code")}
+            )
         zf.writestr("refactored/manifest.json", json.dumps(refactor_manifest, indent=2))
 
     buffer.seek(0)

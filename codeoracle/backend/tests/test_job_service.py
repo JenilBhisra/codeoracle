@@ -60,12 +60,13 @@ def test_run_job_pipeline_writes_results_matching_contract_shape(tmp_path, job_d
     assert results["summary"]["file_count"] == 2
     assert "nodes" in results["dependency_graph"]
     assert "edges" in results["dependency_graph"]
-    # No GEMINI_API_KEY in the test environment, so explanation generation
-    # gracefully skips (Phase 7's documented behavior) rather than being
-    # entirely absent from the results shape.
-    assert results["explanation"]["modules"] == []
+    # No GEMINI_API_KEY in the test environment, so narrative generation
+    # gracefully skips - but static facts (file_tree, signatures, imports)
+    # still populate the modules, just with empty purpose/explanation text.
+    assert len(results["explanation"]["modules"]) == 2
+    assert all(m["purpose"] == "" for m in results["explanation"]["modules"])
     assert "not configured" in results["explanation"]["warnings"][0].lower()
-    assert results["generated_tests"] == []
+    assert results["generated_tests"]["files"] == []
     assert results["refactored_files"] == []
 
 

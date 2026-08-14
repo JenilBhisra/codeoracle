@@ -188,4 +188,4 @@ def test_graph_node_ids_and_edge_ids_are_stable_and_unique():
 
     edge_ids = [e.id for e in graph.edges]
     assert len(edge_ids) == len(set(edge_ids))
-    assert graph.edges[0].id == "app.main-os-imports"
+    assert graph.edges[0].id == "app.main-os-external"

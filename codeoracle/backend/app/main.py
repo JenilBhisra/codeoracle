@@ -31,13 +31,13 @@ app.include_router(jobs_router)
 
 @app.exception_handler(CodeOracleError)
 async def handle_codeoracle_error(request: Request, exc: CodeOracleError) -> JSONResponse:
-    return JSONResponse(status_code=400, content={"error": exc.message})
+    return JSONResponse(status_code=400, content={"detail": exc.message})
 
 
 @app.exception_handler(Exception)
 async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error while processing %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"error": "An unexpected error occurred."})
+    return JSONResponse(status_code=500, content={"detail": "An unexpected error occurred."})
 
 
 @app.get("/")

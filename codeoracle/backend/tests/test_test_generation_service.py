@@ -92,7 +92,7 @@ def test_generate_tests_for_file_returns_none_for_file_with_no_functions():
     assert warning is None
 
 
-def test_generate_tests_for_file_returns_generated_test_with_estimated_coverage(monkeypatch):
+def test_generate_tests_for_file_returns_generated_test(monkeypatch):
     _configure_gemini(monkeypatch)
     file = analyze_python_file("app/mod.py", "def add(a, b):\n    return a + b\n", line_count=2)
 
@@ -100,7 +100,12 @@ def test_generate_tests_for_file_returns_generated_test_with_estimated_coverage(
         test_generation_service,
         "generate_structured",
         lambda prompt, response_model: (
-            GeneratedTestResponse(filename="test_mod.py", code="def test_add(): pass", covered_functions=["add"]),
+            GeneratedTestResponse(
+                filename="test_mod.py",
+                code="def test_add(): pass",
+                covered_functions=["add"],
+                types=["happy_path"],
+            ),
             None,
         ),
     )
@@ -108,10 +113,10 @@ def test_generate_tests_for_file_returns_generated_test_with_estimated_coverage(
     result, warning = test_generation_service.generate_tests_for_file(file, framework="pytest")
 
     assert warning is None
+    assert result.id
     assert result.filename == "test_mod.py"
-    assert result.coverage_label == "estimated"
-    assert result.estimated_coverage_percent is not None
-    assert result.test_framework == "pytest"
+    assert result.framework == "pytest"
+    assert result.types == ["happy_path"]
 
 
 def test_generate_tests_for_file_returns_warning_on_generation_failure(monkeypatch):
@@ -134,9 +139,10 @@ def test_generate_tests_for_project_skips_when_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "gemini_model", "")
     files = [analyze_python_file("app/mod.py", "def f():\n    pass\n", line_count=2)]
 
-    generated, warnings = test_generation_service.generate_tests_for_project(_analysis(files))
+    result, warnings = test_generation_service.generate_tests_for_project(_analysis(files))
 
-    assert generated == []
+    assert result.files == []
+    assert result.coverage.label == "not_executed"
     assert "not configured" in warnings[0].lower()
 
 
@@ -153,10 +159,10 @@ def test_generate_tests_for_project_skips_files_with_syntax_errors(monkeypatch):
         or (GeneratedTestResponse(filename="test_good.py", code="pass", covered_functions=["f"]), None),
     )
 
-    generated, warnings = test_generation_service.generate_tests_for_project(_analysis([good, broken]))
+    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([good, broken]))
 
-    assert len(generated) == 1
-    assert generated[0].target_file == "app/good.py"
+    assert len(result.files) == 1
+    assert result.files[0].target_file == "app/good.py"
     assert len(calls) == 1
 
 
@@ -174,11 +180,12 @@ def test_generate_tests_for_project_uses_pytest_for_python_and_vitest_for_js(mon
         ),
     )
 
-    generated, _warnings = test_generation_service.generate_tests_for_project(_analysis([py_file, js_file]))
+    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([py_file, js_file]))
 
-    frameworks = {g.target_file: g.test_framework for g in generated}
+    frameworks = {g.target_file: g.framework for g in result.files}
     assert frameworks["app/mod.py"] == "pytest"
     assert frameworks["src/mod.js"] == "vitest"
+    assert result.framework == "pytest + vitest"
 
 
 def test_generate_tests_for_project_continues_when_one_file_fails(monkeypatch):
@@ -193,10 +200,10 @@ def test_generate_tests_for_project_continues_when_one_file_fails(monkeypatch):
 
     monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
 
-    generated, warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]))
+    result, warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]))
 
-    assert len(generated) == 1
-    assert generated[0].target_file == "app/b.py"
+    assert len(result.files) == 1
+    assert result.files[0].target_file == "app/b.py"
     assert any("app/a.py" in w and "generation failed" in w for w in warnings)
 
 
@@ -213,6 +220,34 @@ def test_coverage_label_is_never_measured(monkeypatch):
         ),
     )
 
-    generated, _warnings = test_generation_service.generate_tests_for_project(_analysis([file]))
+    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([file]))
 
-    assert all(g.coverage_label != "measured" for g in generated)
+    assert result.coverage.label != "measured"
+
+
+def test_breakdown_counts_files_per_type(monkeypatch):
+    _configure_gemini(monkeypatch)
+    file_a = analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2)
+    file_b = analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2)
+
+    def fake_generate_structured(prompt, response_model):
+        if "app/a.py" in prompt:
+            return (
+                GeneratedTestResponse(
+                    filename="test_a.py", code="pass", covered_functions=["a"], types=["happy_path", "edge_case"]
+                ),
+                None,
+            )
+        return (
+            GeneratedTestResponse(filename="test_b.py", code="pass", covered_functions=["b"], types=["happy_path"]),
+            None,
+        )
+
+    monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
+
+    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]))
+
+    assert result.breakdown.happy_path == 2
+    assert result.breakdown.edge_case == 1
+    assert result.breakdown.error_case == 0
+    assert result.covered_functions == 2

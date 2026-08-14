@@ -1,4 +1,5 @@
 import json
+import uuid
 from pathlib import Path
 
 from app.core.config import settings
@@ -19,11 +20,13 @@ REFACTOR_TASK = (
     "raised, class names, module paths/imports, data formats, sync/async "
     "behavior, environment variables, configuration, side effects, and "
     "external API contracts - put every one you introduce in "
-    "`breaking_changes`. Explain in `migration_notes` how a caller would "
-    "need to adapt. Set `risk_level` to \"low\", \"medium\", or \"high\" "
-    "based on how much observable behavior changes. This is a PROPOSAL ONLY "
-    "that a human must review before applying - it will never be applied "
-    "automatically, and the original file is never overwritten."
+    "`breaking_changes`, and list the matching categories (from the fixed "
+    "set given in the schema) in `impact_areas`. Explain in "
+    "`migration_notes` how a caller would need to adapt. Set `risk` to "
+    "\"low\", \"medium\", or \"high\" based on how much observable behavior "
+    "changes. This is a PROPOSAL ONLY that a human must review before "
+    "applying - it will never be applied automatically, and the original "
+    "file is never overwritten."
 )
 
 
@@ -39,6 +42,8 @@ def generate_refactor_for_file(root_dir: Path, file: FileAnalysis) -> tuple[Refa
     if not file.functions and not file.classes:
         return None, None
 
+    original_code = _read_source(root_dir, file)
+
     schema = json.dumps(RefactorProposalResponse.model_json_schema())
     facts = json.dumps(
         {
@@ -48,7 +53,7 @@ def generate_refactor_for_file(root_dir: Path, file: FileAnalysis) -> tuple[Refa
             "imports": [i.model_dump() for i in file.imports],
             "functions": [f.model_dump() for f in file.functions],
             "classes": [c.model_dump() for c in file.classes],
-            "source_code": _read_source(root_dir, file),
+            "source_code": original_code,
         },
         indent=2,
     )
@@ -60,16 +65,19 @@ def generate_refactor_for_file(root_dir: Path, file: FileAnalysis) -> tuple[Refa
 
     return (
         RefactorProposal(
-            original_file=file.path,
+            id=uuid.uuid4().hex[:10],
+            path=file.path,
             language=file.language,
-            refactored_code=result.refactored_code,
-            reason=result.reason,
-            expected_benefit=result.expected_benefit,
-            risk_level=result.risk_level,
+            risk=result.risk,
+            summary=result.summary,
+            benefit=result.benefit,
             breaking_changes=result.breaking_changes,
             migration_notes=result.migration_notes,
             assumptions=result.assumptions,
-            human_review_required=True,
+            impact_areas=result.impact_areas,
+            requires_human_review=True,
+            original_code=original_code,
+            refactored_code=result.refactored_code,
         ),
         None,
     )
