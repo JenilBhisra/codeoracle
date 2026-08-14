@@ -7,21 +7,22 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 /**
- * Custom API Error to provide user-friendly error messages
+ * Custom API Error with status, code, and url metadata
  */
 export class ApiError extends Error {
-  constructor(message, status = null, code = null) {
+  constructor(message, status = null, code = null, url = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.url = url;
   }
 }
 
 /**
- * Generic fetch wrapper with timeout and standard error formatting
+ * Generic fetch wrapper with timeout, CORS handling, and structured errors
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -40,23 +41,29 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
       const errorMessage =
         (typeof data === 'object' && (data.detail || data.message || data.error)) ||
         `Request failed with status ${response.status} (${response.statusText})`;
-      throw new ApiError(errorMessage, response.status);
+      throw new ApiError(errorMessage, response.status, 'HTTP_ERROR', url);
     }
 
     return data;
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new ApiError('Request timed out. The server might be waking up or processing a heavy task.', 408, 'TIMEOUT');
+      throw new ApiError(
+        'Request timed out. The backend server might be waking up or processing a heavy codebase.',
+        408,
+        'TIMEOUT',
+        url
+      );
     }
     if (err instanceof ApiError) {
       throw err;
     }
-    // Network / CORS / Offline error
+    // Network, CORS, or Server Unreachable
     throw new ApiError(
-      'Unable to connect to the backend server. Please verify the API server is running.',
+      'Unable to connect to the backend server. Please verify the API server is running at ' + API_BASE_URL,
       null,
-      'NETWORK_ERROR'
+      'NETWORK_ERROR',
+      url
     );
   }
 }
@@ -80,7 +87,7 @@ export async function analyzeZipUpload(file) {
   return fetchWithTimeout(`${API_BASE_URL}/api/analyze/upload`, {
     method: 'POST',
     body: formData,
-  });
+  }, 45000); // 45s timeout for large uploads
 }
 
 /**
@@ -94,7 +101,7 @@ export async function analyzeGithubRepo(repoUrl) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ repo_url: repoUrl.trim() }),
-  });
+  }, 45000);
 }
 
 /**
@@ -104,7 +111,7 @@ export async function analyzeGithubRepo(repoUrl) {
 export async function getJobStatus(jobId) {
   return fetchWithTimeout(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}`, {
     method: 'GET',
-  });
+  }, 10000);
 }
 
 /**
@@ -114,11 +121,11 @@ export async function getJobStatus(jobId) {
 export async function getJobResults(jobId) {
   return fetchWithTimeout(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/results`, {
     method: 'GET',
-  });
+  }, 25000);
 }
 
 /**
- * 6. Download Results Artifacts
+ * 6. Download Results Artifacts URL
  * GET /api/jobs/{job_id}/download
  */
 export function getDownloadUrl(jobId) {
