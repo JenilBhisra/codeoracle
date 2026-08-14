@@ -64,3 +64,14 @@ class GroqRateLimitError(CodeOracleError):
 
 class GroqTimeoutError(CodeOracleError):
     pass
+
+
+class GroqGenerationError(CodeOracleError):
+    """Groq itself failed to produce a response matching the requested JSON
+    schema (its own server-side generation/validation step failed) - distinct
+    from a rate limit or network/server outage, but still worth retrying:
+    LLM output is stochastic, and falling back to a different model (e.g.
+    one using best-effort JSON mode instead of strict mode) can succeed
+    where the original one didn't."""
+
+    pass

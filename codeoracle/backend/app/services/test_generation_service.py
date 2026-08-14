@@ -1,5 +1,7 @@
 import json
+import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis, FileAnalysis, FunctionInfo
@@ -13,6 +15,8 @@ from app.models.tests import (
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
 from app.services.groq_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
+
+logger = logging.getLogger(__name__)
 
 NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); test generation was skipped."
 
@@ -201,17 +205,38 @@ def generate_tests_for_project(
     for file, functions in targetable:
         by_language.setdefault(file.language, []).append((file, functions))
 
-    generated: list[GeneratedTestFile] = []
-    warnings: list[str] = []
-
+    # Flatten (language, framework, chunk) across every language before
+    # dispatching, so chunks from different languages run concurrently
+    # too, not just chunks within one language.
+    work_items = []
     for language, entries in by_language.items():
         framework = "pytest" if language == "python" else "vitest"
         functions_by_path = {file.path: functions for file, functions in entries}
         chunks = chunk_files_by_budget([file for file, _fns in entries], max_chunk_chars=max_chunk_chars)
-
         for chunk in chunks:
             chunk_entries = [(file, functions_by_path[file.path]) for file in chunk.files]
-            files_by_path, warning = generate_tests_for_chunk(chunk_entries, framework=framework)
+            work_items.append((language, framework, chunk, chunk_entries))
+
+    generated: list[GeneratedTestFile] = []
+    warnings: list[str] = []
+
+    # Chunks are independent Groq calls, so run them concurrently (bounded by
+    # GROQ_MAX_CONCURRENCY) instead of one at a time - submitting all of them
+    # up front starts them all immediately, then processing results in the
+    # original work_items order keeps output deterministic regardless of
+    # which call actually finishes first.
+    with ThreadPoolExecutor(max_workers=settings.groq_max_concurrency) as executor:
+        futures = [
+            executor.submit(generate_tests_for_chunk, chunk_entries, framework=framework)
+            for _language, framework, _chunk, chunk_entries in work_items
+        ]
+        for (language, _framework, chunk, chunk_entries), future in zip(work_items, futures):
+            try:
+                files_by_path, warning = future.result()
+            except Exception:
+                logger.exception("Unexpected error generating tests for chunk %s (%s)", chunk.chunk_id, language)
+                warnings.append(f"{chunk.chunk_id} ({language}): unexpected error during test generation")
+                continue
             if warning:
                 warnings.append(f"{chunk.chunk_id} ({language}): {warning}")
                 continue

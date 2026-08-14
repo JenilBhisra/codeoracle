@@ -162,18 +162,17 @@ def test_explain_project_combines_map_and_reduce_results(monkeypatch):
 
 def test_explain_project_continues_when_one_chunk_fails(monkeypatch):
     _configure_groq(monkeypatch)
-    # two files, tiny per-chunk budget forces two separate chunk calls
+    # two files, tiny per-chunk budget forces two separate chunk calls, run
+    # concurrently - keyed off prompt content (not call order) so the test
+    # is deterministic regardless of which chunk's thread finishes first
     files = [
         analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2),
         analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2),
     ]
 
-    call_count = {"chunk": 0}
-
     def fake_generate_structured(prompt, response_model):
         if response_model is ChunkExplanationResult:
-            call_count["chunk"] += 1
-            if call_count["chunk"] == 1:
+            if "app/a.py" in prompt:
                 return None, "invalid JSON"
             return ChunkExplanationResult(modules=[ModuleNarrative(id="app.b", purpose="does b")]), None
         return ProjectOverviewResult(project_summary="Overview.", architecture_overview="Architecture."), None
@@ -182,13 +181,13 @@ def test_explain_project_continues_when_one_chunk_fails(monkeypatch):
 
     result = explanation_service.explain_project(_analysis(files), DependencyGraph(), max_chunk_chars=1)
 
-    assert call_count["chunk"] == 2
     # both modules are still present (structure-only for the failed chunk)
     assert {m.id for m in result.modules} == {"app.a", "app.b"}
     module_b = next(m for m in result.modules if m.id == "app.b")
     assert module_b.purpose == "does b"
     module_a = next(m for m in result.modules if m.id == "app.a")
     assert module_a.purpose == ""
+    assert any("invalid JSON" in w for w in result.warnings)
     assert any("invalid JSON" in w for w in result.warnings)
 
 
