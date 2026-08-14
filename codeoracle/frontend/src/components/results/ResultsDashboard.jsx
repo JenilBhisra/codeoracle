@@ -11,6 +11,7 @@ import {
   FolderArchive,
   ExternalLink,
   Info,
+  FileText,
 } from 'lucide-react';
 import SummaryMetrics from './SummaryMetrics';
 import ExplanationView from '../explanation/ExplanationView';
@@ -24,7 +25,7 @@ import { RESULTS_TABS } from '../../utils/constants';
 import { getDownloadUrl } from '../../services/api';
 
 /**
- * Main Results Dashboard Component (Phases 5, 6, 7, 8)
+ * Main Results Dashboard Component with Markdown Report Generator
  * @param {Object} props
  * @param {Object} props.results - Backend result payload from /api/jobs/{job_id}/results
  * @param {string} props.jobId
@@ -47,6 +48,73 @@ export default function ResultsDashboard({
 
   // Construct download URL
   const downloadUrl = jobId ? getDownloadUrl(jobId) : '#';
+
+  // Export Full Markdown Report
+  const handleExportMarkdownReport = () => {
+    const reportContent = `# CodeOracle Analysis & Modernization Report
+**Project Name:** ${projectName}
+**Generated:** ${new Date().toLocaleString()}
+**Analysis ID:** ${jobId || 'Local-Analysis'}
+
+---
+
+## 1. Project Summary Metrics
+* **Detected Languages:** ${(summary.languages || ['python']).join(', ')}
+* **Total Source Files:** ${summary.file_count || 0}
+* **Total Source Lines:** ${summary.line_count || 0}
+* **Identified Modules:** ${summary.module_count || 0}
+* **Internal/External Dependencies:** ${summary.dependency_count || 0}
+* **Synthesized Test Suites:** ${generatedTests.length}
+* **Test Coverage:** ${summary.coverage_percentage ? `${summary.coverage_percentage}%` : 'N/A'} (${summary.coverage_type || 'Not executed'})
+
+---
+
+## 2. Architecture Overview
+${explanation.overview || 'Architecture analysis completed.'}
+
+### Architecture Pattern
+* **Design Pattern:** ${explanation.architecture_pattern || 'Modular Service'}
+
+### Entry Points
+${(explanation.entry_points || []).map((ep) => `* **${typeof ep === 'object' ? ep.name : ep}** (${typeof ep === 'object' ? ep.type : 'Entry'})`).join('\n') || '* No explicit top-level entry points identified.'}
+
+---
+
+## 3. Module & Function Explanations
+${(explanation.modules || []).map((m) => `
+### Module: \`${m.name}\` (\`${m.path || 'N/A'}\`)
+* **Role:** ${m.explanation || m.role || 'N/A'}
+* **Dependencies:** ${(m.dependencies || []).join(', ') || 'None'}
+${m.classes && m.classes.length > 0 ? `\n**Classes:**\n` + m.classes.map((c) => `  * \`class ${c.name}\` - ${c.explanation || ''}`).join('\n') : ''}
+${m.functions && m.functions.length > 0 ? `\n**Functions:**\n` + m.functions.map((f) => `  * \`${f.signature || f.name}\`: ${f.explanation || ''}`).join('\n') : ''}
+`).join('\n')}
+
+---
+
+## 4. Modernized Refactoring Proposals
+${refactoredFiles.map((rf) => `
+### File: \`${rf.file_path}\`
+* **Risk Level:** ${(rf.risk_level || 'medium').toUpperCase()}
+* **Reason:** ${rf.reason || 'N/A'}
+* **Expected Benefit:** ${rf.expected_benefit || 'N/A'}
+* **Breaking Changes:** ${(rf.breaking_changes || []).join('; ') || 'None'}
+* **Migration Notes:** ${(rf.migration_notes || []).join('; ') || 'None'}
+`).join('\n')}
+
+---
+*Report generated automatically by CodeOracle — PS-06 HACKORBIT 2026.*
+`;
+
+    const blob = new Blob([reportContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_architecture_report.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const tabList = [
     {
@@ -101,7 +169,19 @@ export default function ResultsDashboard({
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Export Report */}
+          <Button
+            variant="outline"
+            size="md"
+            icon={<FileText className="w-4 h-4 text-purple-400" />}
+            onClick={handleExportMarkdownReport}
+            title="Download architectural markdown report"
+          >
+            Export Report (.md)
+          </Button>
+
+          {/* Download Zip Bundle */}
           {jobId && (
             <a
               href={downloadUrl}

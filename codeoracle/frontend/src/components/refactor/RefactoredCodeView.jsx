@@ -10,17 +10,21 @@ import {
   CheckCircle2,
   Info,
   Layers,
+  Split,
+  FileText,
 } from 'lucide-react';
 import CodeViewer from '../common/CodeViewer';
+import DiffViewer from '../common/DiffViewer';
 import Badge from '../common/Badge';
 
 /**
- * Refactored Code View Component (Phase 8)
+ * Refactored Code View Component with Diff Viewer Mode
  * @param {Object} props
  * @param {Array} props.refactoredFiles - Array of proposed refactored file objects
  */
 export default function RefactoredCodeView({ refactoredFiles = [] }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeCodeMode, setActiveCodeMode] = useState('diff'); // 'diff' | 'full'
 
   if (!refactoredFiles || refactoredFiles.length === 0) {
     return (
@@ -38,6 +42,7 @@ export default function RefactoredCodeView({ refactoredFiles = [] }) {
 
   const {
     file_path = 'app/main.py',
+    original_code = '# Legacy Code',
     refactored_code = '# No refactored code provided',
     reason = 'Modernize legacy implementation patterns.',
     expected_benefit = 'Improved maintainability, security, and performance.',
@@ -59,6 +64,7 @@ export default function RefactoredCodeView({ refactoredFiles = [] }) {
 
   const isPython = file_path.endsWith('.py');
   const codeLang = isPython ? 'python' : 'javascript';
+  const filename = file_path.split('/').pop() || 'code';
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -104,6 +110,34 @@ export default function RefactoredCodeView({ refactoredFiles = [] }) {
             <span className="text-xs text-slate-400 font-mono">
               Language: <strong className="text-slate-200 capitalize">{codeLang}</strong>
             </span>
+          </div>
+
+          {/* View Mode Mode: Diff vs Full Code */}
+          <div className="inline-flex p-1 rounded-xl bg-[#080912] border border-white/10 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setActiveCodeMode('diff')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
+                activeCodeMode === 'diff'
+                  ? 'bg-purple-600/40 text-purple-200 shadow-sm border border-purple-400/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Split className="w-3.5 h-3.5" />
+              <span>Before/After Diff</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveCodeMode('full')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
+                activeCodeMode === 'full'
+                  ? 'bg-purple-600/40 text-purple-200 shadow-sm border border-purple-400/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Modernized Code</span>
+            </button>
           </div>
         </div>
 
@@ -164,12 +198,21 @@ export default function RefactoredCodeView({ refactoredFiles = [] }) {
         )}
       </div>
 
-      {/* Syntax-Highlighted Modernized Code Block */}
-      <CodeViewer
-        code={refactored_code}
-        language={codeLang}
-        filename={`${file_path.split('/').pop()} (Refactored)`}
-      />
+      {/* Code Display: Either Diff Viewer or Full Code Viewer */}
+      {activeCodeMode === 'diff' ? (
+        <DiffViewer
+          originalCode={original_code}
+          refactoredCode={refactored_code}
+          filename={`${filename} (Diff View)`}
+          language={codeLang}
+        />
+      ) : (
+        <CodeViewer
+          code={refactored_code}
+          language={codeLang}
+          filename={`${filename} (Modernized)`}
+        />
+      )}
     </div>
   );
 }

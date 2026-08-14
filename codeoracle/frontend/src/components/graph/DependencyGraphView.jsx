@@ -12,7 +12,7 @@ import '@xyflow/react/dist/style.css';
 import CustomDependencyNode from './CustomDependencyNode';
 import NodeDetailPanel from './NodeDetailPanel';
 import GraphLegend from './GraphLegend';
-import { Layers, Maximize2, RotateCcw, Info, Sparkles } from 'lucide-react';
+import { Layers, Maximize2, Minimize2, RotateCcw, Info, Sparkles, X } from 'lucide-react';
 import Button from '../common/Button';
 import Badge from '../common/Badge';
 
@@ -94,7 +94,7 @@ function formatGraphEdges(rawEdges = []) {
 }
 
 /**
- * Dependency Graph Interactive Visualization View (Phase 7)
+ * Dependency Graph Interactive Visualization View with Fullscreen Mode
  * @param {Object} props
  * @param {{ nodes: Array, edges: Array }} props.graphData
  */
@@ -105,6 +105,7 @@ export default function DependencyGraphView({ graphData = { nodes: [], edges: []
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     setNodes(initialNodes);
@@ -138,6 +139,76 @@ export default function DependencyGraphView({ graphData = { nodes: [], edges: []
     );
   }
 
+  const canvasContent = (
+    <div
+      className={`relative w-full rounded-3xl bg-[#080910] border border-white/[0.08] overflow-hidden shadow-2xl shadow-black/50 transition-all ${
+        isFullscreen
+          ? 'fixed inset-4 sm:inset-8 z-[100] h-auto shadow-[0_0_80px_rgba(0,0,0,0.9)] ring-1 ring-purple-500/30'
+          : 'h-[580px]'
+      }`}
+    >
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.25 }}
+        minZoom={0.2}
+        maxZoom={2}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+      >
+        {/* Subtle Cyberpunk Dot Grid */}
+        <Background color="#1e233d" gap={20} size={1.5} />
+
+        {/* Standard Canvas Controls */}
+        <Controls className="!bg-[#121424] !border-white/10 !rounded-xl !shadow-xl !fill-slate-300" />
+
+        {/* Mini-Map */}
+        <MiniMap
+          nodeColor={(n) => {
+            if (n.data?.external) return '#64748b';
+            if (n.data?.language === 'python') return '#06b6d4';
+            if (n.data?.language === 'javascript') return '#f59e0b';
+            return '#a855f7';
+          }}
+          maskColor="rgba(10, 11, 18, 0.8)"
+          className="!bg-[#0a0b12] !border !border-white/10 !rounded-2xl hidden sm:block"
+        />
+      </ReactFlow>
+
+      {/* Legend */}
+      <GraphLegend />
+
+      {/* Fullscreen Expand / Close Button on Canvas */}
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setIsFullscreen(!isFullscreen)}
+          icon={isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          className="text-xs bg-[#0e101d]/90 backdrop-blur-md"
+        >
+          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+        </Button>
+      </div>
+
+      {/* Selected Node Details Drawer */}
+      {selectedNode && (
+        <NodeDetailPanel
+          node={selectedNode}
+          edges={edges}
+          nodes={nodes}
+          onClose={() => setSelectedNode(null)}
+          onSelectNode={handleSelectNodeById}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
       {/* Top Controls & Info Bar */}
@@ -159,55 +230,15 @@ export default function DependencyGraphView({ graphData = { nodes: [], edges: []
         </div>
       </div>
 
-      {/* React Flow Canvas Container */}
-      <div className="relative w-full h-[580px] rounded-3xl bg-[#080910] border border-white/[0.08] overflow-hidden shadow-2xl shadow-black/50">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.25 }}
-          minZoom={0.2}
-          maxZoom={2}
-          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-        >
-          {/* Subtle Cyberpunk Dot Grid */}
-          <Background color="#1e233d" gap={20} size={1.5} />
+      {/* Fullscreen Backdrop Blur if active */}
+      {isFullscreen && (
+        <div
+          onClick={() => setIsFullscreen(false)}
+          className="fixed inset-0 bg-black/80 backdrop-blur-md z-[90] animate-in fade-in duration-200"
+        />
+      )}
 
-          {/* Standard Canvas Controls */}
-          <Controls className="!bg-[#121424] !border-white/10 !rounded-xl !shadow-xl !fill-slate-300" />
-
-          {/* Mini-Map */}
-          <MiniMap
-            nodeColor={(n) => {
-              if (n.data?.external) return '#64748b';
-              if (n.data?.language === 'python') return '#06b6d4';
-              if (n.data?.language === 'javascript') return '#f59e0b';
-              return '#a855f7';
-            }}
-            maskColor="rgba(10, 11, 18, 0.8)"
-            className="!bg-[#0a0b12] !border !border-white/10 !rounded-2xl hidden sm:block"
-          />
-        </ReactFlow>
-
-        {/* Legend */}
-        <GraphLegend />
-
-        {/* Selected Node Details Drawer */}
-        {selectedNode && (
-          <NodeDetailPanel
-            node={selectedNode}
-            edges={edges}
-            nodes={nodes}
-            onClose={() => setSelectedNode(null)}
-            onSelectNode={handleSelectNodeById}
-          />
-        )}
-      </div>
+      {canvasContent}
     </div>
   );
 }
