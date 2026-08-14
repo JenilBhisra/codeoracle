@@ -133,6 +133,7 @@ def test_explain_project_skips_when_gemini_not_configured(monkeypatch):
     assert len(result.modules) == 1
     assert result.modules[0].purpose == ""
     assert result.project_summary == ""
+    assert result.confidence == "low"
     assert "not configured" in result.warnings[0].lower()
 
 

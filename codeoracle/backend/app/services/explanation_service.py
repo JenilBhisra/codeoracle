@@ -181,6 +181,7 @@ def explain_project(
             languages=analysis.languages,
             entry_points=entry_points,
             external_dependencies=external_dependencies,
+            confidence="low",
             file_tree=file_tree,
             modules=[_merge_module(f, None) for f in analyzable_files],
             warnings=[NOT_CONFIGURED_WARNING],
