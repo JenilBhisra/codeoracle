@@ -8,9 +8,9 @@ from app.services import refactor_service
 from app.services.python_analyzer import analyze_python_file
 
 
-def _configure_groq(monkeypatch):
-    monkeypatch.setattr(settings, "groq_api_key", "fake-key")
-    monkeypatch.setattr(settings, "groq_model", "fake-model")
+def _configure_gemini(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(settings, "gemini_model", "fake-model")
 
 
 def _write_source(tmp_path, relative_path, content):
@@ -53,7 +53,7 @@ def test_impact_areas_rejects_values_outside_fixed_categories():
 
 
 def test_generate_refactors_for_project_returns_nothing_for_trivial_file(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     _write_source(tmp_path, "app/consts.py", "MAX_SIZE = 100\n")
     file = analyze_python_file("app/consts.py", "MAX_SIZE = 100\n", line_count=1)
     analysis = CodebaseAnalysis(project_name="demo", languages=["python"], line_count=1, files=[file])
@@ -65,7 +65,7 @@ def test_generate_refactors_for_project_returns_nothing_for_trivial_file(tmp_pat
 
 
 def test_generate_refactors_for_chunk_includes_real_source_in_prompt(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     source = "def distinctive_marker_fn(a, b):\n    return a - b\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
@@ -90,7 +90,7 @@ def _make_chunk_response(files):
 
 
 def test_generate_refactors_for_project_always_requires_human_review_and_keeps_original(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
@@ -115,7 +115,7 @@ def test_generate_refactors_for_project_always_requires_human_review_and_keeps_o
 
 
 def test_generate_refactors_for_project_returns_warning_on_chunk_failure(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
@@ -130,8 +130,8 @@ def test_generate_refactors_for_project_returns_warning_on_chunk_failure(tmp_pat
 
 
 def test_generate_refactors_for_project_skips_when_not_configured(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "groq_api_key", "")
-    monkeypatch.setattr(settings, "groq_model", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    monkeypatch.setattr(settings, "gemini_model", "")
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
@@ -144,7 +144,7 @@ def test_generate_refactors_for_project_skips_when_not_configured(tmp_path, monk
 
 
 def test_generate_refactors_for_project_skips_files_with_syntax_errors(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     good_source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/good.py", good_source)
     good = analyze_python_file("app/good.py", good_source, line_count=2)
@@ -166,7 +166,7 @@ def test_generate_refactors_for_project_skips_files_with_syntax_errors(tmp_path,
 
 
 def test_generate_refactors_for_project_continues_when_one_chunk_fails(tmp_path, monkeypatch):
-    _configure_groq(monkeypatch)
+    _configure_gemini(monkeypatch)
     source_a = "def a():\n    return 1\n"
     source_b = "def b():\n    return 2\n"
     _write_source(tmp_path, "app/a.py", source_a)

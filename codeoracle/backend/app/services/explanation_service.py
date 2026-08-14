@@ -18,12 +18,12 @@ from app.models.explanation import (
 )
 from app.models.graph import DependencyGraph
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
-from app.services.groq_structured import generate_structured
+from app.services.gemini_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
 logger = logging.getLogger(__name__)
 
-NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); explanations were skipped."
+NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); explanations were skipped."
 
 CHUNK_TASK = (
     "For EACH file in the facts above, return one entry in `modules` with `id` "
@@ -32,8 +32,8 @@ CHUNK_TASK = (
     "function/method listed in that file's facts (top-level `functions` and "
     "each class's `methods`), return one entry in `functions` (matched by "
     "`name`) with: a clear `explanation` of what it does, a "
-    "`parameter_descriptions` list with one {name, description} entry per "
-    "parameter, a `returns` description, any `side_effects` (empty list if "
+    "`parameter_descriptions` object mapping each parameter name to a short "
+    "description, a `returns` description, any `side_effects` (empty list if "
     "none), a `risk` level, and a `confidence` level reflecting how certain "
     "you are given only the facts shown."
 )
@@ -47,8 +47,8 @@ OVERVIEW_TASK = (
 )
 
 
-def _is_groq_configured() -> bool:
-    return bool(settings.groq_api_key and settings.groq_model)
+def _is_gemini_configured() -> bool:
+    return bool(settings.gemini_api_key and settings.gemini_model)
 
 
 def _derive_entry_points(files: list[FileAnalysis]) -> list[str]:
@@ -101,7 +101,7 @@ def _build_signature(func: FunctionInfo) -> str:
 
 
 def _merge_function(static: FunctionInfo, narrative: FunctionNarrative | None) -> FunctionExplanation:
-    descriptions = {pd.name: pd.description for pd in narrative.parameter_descriptions} if narrative else {}
+    descriptions = narrative.parameter_descriptions if narrative else {}
     parameters = [
         FunctionParameter(name=p.name, type=p.annotation, description=descriptions.get(p.name, ""))
         for p in static.parameters
@@ -180,7 +180,7 @@ def explain_project(
     file_tree = _build_file_tree(analysis.files)
     analyzable_files = [f for f in analysis.files if f.syntax_error is None]
 
-    if not _is_groq_configured():
+    if not _is_gemini_configured():
         return ProjectExplanation(
             languages=analysis.languages,
             entry_points=entry_points,
@@ -195,12 +195,12 @@ def explain_project(
     narratives_by_id: dict[str, ModuleNarrative] = {}
     warnings: list[str] = []
 
-    # Chunks are independent Groq calls, so run them concurrently (bounded by
-    # GROQ_MAX_CONCURRENCY) instead of one at a time - submitting all of them
-    # up front starts them all immediately, then iterating in the original
-    # chunk order keeps results deterministic regardless of which call
-    # actually finishes first.
-    with ThreadPoolExecutor(max_workers=settings.groq_max_concurrency) as executor:
+    # Chunks are independent Gemini calls, so run them concurrently (bounded
+    # by GEMINI_MAX_CONCURRENCY) instead of one at a time - submitting all of
+    # them up front starts them all immediately, then iterating in the
+    # original chunk order keeps results deterministic regardless of which
+    # call actually finishes first.
+    with ThreadPoolExecutor(max_workers=settings.gemini_max_concurrency) as executor:
         futures = [executor.submit(explain_chunk, chunk.files) for chunk in chunks]
         for chunk, future in zip(chunks, futures):
             try:

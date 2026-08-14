@@ -8,10 +8,10 @@ services:
       - key: FRONTEND_ORIGINS
         sync: false
         placeholder: "Comma-separated frontend origins (e.g. https://codeoracle.onrender.com)"
-      - key: GROQ_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: GROQ_MODEL
+      - key: GEMINI_MODEL
         sync: false
-      - key: GROQ_FALLBACK_MODELS
+      - key: GEMINI_FALLBACK_MODELS
         sync: false
-        placeholder: "Comma-separated fallback models, e.g. openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.1-8b-instant"
+        placeholder: "Comma-separated fallback models, e.g. gemini-2.5-flash-lite,gemini-flash-latest"

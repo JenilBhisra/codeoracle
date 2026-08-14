@@ -8,12 +8,12 @@ from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis, FileAnalysis
 from app.models.refactor import RefactorChunkResponse, RefactorProposal
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
-from app.services.groq_structured import generate_structured
+from app.services.gemini_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
 logger = logging.getLogger(__name__)
 
-NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); refactor generation was skipped."
+NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); refactor generation was skipped."
 
 REFACTOR_CHUNK_TASK = (
     "For EACH file in the facts above, propose a modernized, refactored "
@@ -37,8 +37,8 @@ REFACTOR_CHUNK_TASK = (
 )
 
 
-def _is_groq_configured() -> bool:
-    return bool(settings.groq_api_key and settings.groq_model)
+def _is_gemini_configured() -> bool:
+    return bool(settings.gemini_api_key and settings.gemini_model)
 
 
 def _read_source(root_dir: Path, file: FileAnalysis) -> str:
@@ -48,7 +48,7 @@ def _read_source(root_dir: Path, file: FileAnalysis) -> str:
 def generate_refactors_for_chunk(
     files: list[FileAnalysis], sources: dict[str, str]
 ) -> tuple[dict[str, RefactorProposal], str | None]:
-    """One Groq call covering multiple files' refactor proposals at once."""
+    """One Gemini call covering multiple files' refactor proposals at once."""
     schema = json.dumps(RefactorChunkResponse.model_json_schema())
     facts = json.dumps(
         [
@@ -95,7 +95,7 @@ def generate_refactors_for_chunk(
 def generate_refactors_for_project(
     analysis: CodebaseAnalysis, root_dir: Path, *, max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS
 ) -> tuple[list[RefactorProposal], list[str]]:
-    if not _is_groq_configured():
+    if not _is_gemini_configured():
         return [], [NOT_CONFIGURED_WARNING]
 
     refactorable = [f for f in analysis.files if f.syntax_error is None and (f.functions or f.classes)]
@@ -112,12 +112,12 @@ def generate_refactors_for_project(
     proposals: list[RefactorProposal] = []
     warnings: list[str] = []
 
-    # Chunks are independent Groq calls, so run them concurrently (bounded by
-    # GROQ_MAX_CONCURRENCY) instead of one at a time - submitting all of them
-    # up front starts them all immediately, then processing results in the
-    # original chunk order keeps output deterministic regardless of which
-    # call actually finishes first.
-    with ThreadPoolExecutor(max_workers=settings.groq_max_concurrency) as executor:
+    # Chunks are independent Gemini calls, so run them concurrently (bounded
+    # by GEMINI_MAX_CONCURRENCY) instead of one at a time - submitting all of
+    # them up front starts them all immediately, then processing results in
+    # the original chunk order keeps output deterministic regardless of
+    # which call actually finishes first.
+    with ThreadPoolExecutor(max_workers=settings.gemini_max_concurrency) as executor:
         futures = [executor.submit(generate_refactors_for_chunk, chunk.files, sources) for chunk in chunks]
         for chunk, future in zip(chunks, futures):
             try:
@@ -132,7 +132,7 @@ def generate_refactors_for_project(
             for file in chunk.files:
                 proposal = proposals_by_path.get(file.path)
                 if proposal is None:
-                    warnings.append(f"{file.path}: Groq did not return a refactor proposal for this path")
+                    warnings.append(f"{file.path}: Gemini did not return a refactor proposal for this path")
                     continue
                 proposals.append(proposal)
 

@@ -7,17 +7,17 @@ from app.services import job_service
 
 
 @pytest.fixture(autouse=True)
-def _reset_groq_config(monkeypatch):
+def _reset_gemini_config(monkeypatch):
     """Tests must be deterministic regardless of the developer's local .env.
 
-    Without this, a real GROQ_API_KEY/GROQ_MODEL in backend/.env makes
-    every test that doesn't explicitly mock Groq start firing real network
+    Without this, a real GEMINI_API_KEY/GEMINI_MODEL in backend/.env makes
+    every test that doesn't explicitly mock Gemini start firing real network
     calls, turning fast/deterministic "not configured" tests into slow,
-    flaky ones. Tests that want Groq "on" set it explicitly in their own
+    flaky ones. Tests that want Gemini "on" set it explicitly in their own
     body, which overrides this baseline.
     """
-    monkeypatch.setattr(settings, "groq_api_key", "")
-    monkeypatch.setattr(settings, "groq_model", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    monkeypatch.setattr(settings, "gemini_model", "")
 
 
 @pytest.fixture
