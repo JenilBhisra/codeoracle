@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Gemini API (used starting in Backend Phase 6)
     gemini_api_key: str = ""
     gemini_model: str = ""
+    # Comma-separated models tried in order if gemini_model is exhausted/unavailable -
+    # different models have independent rate-limit quotas, so falling back to another
+    # one can keep a demo working even if the primary model's free-tier quota is spent.
+    gemini_fallback_models: str = ""
     gemini_timeout_seconds: float = 30.0
     gemini_max_retries: int = 3
     gemini_retry_base_seconds: float = 1.0
@@ -40,6 +44,10 @@ class Settings(BaseSettings):
     @property
     def frontend_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
+
+    @property
+    def gemini_fallback_models_list(self) -> list[str]:
+        return [model.strip() for model in self.gemini_fallback_models.split(",") if model.strip()]
 
 
 @lru_cache
