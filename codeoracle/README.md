@@ -90,9 +90,12 @@ Follow the instructions below to get both the frontend and backend applications 
 
 5. Run the development server:
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload --reload-dir app
    ```
-   The backend server will start at `http://127.0.0.1:8000`. You can access the interactive API docs (Swagger) at `http://127.0.0.1:8000/docs`.
+   `--reload-dir app` limits the file watcher to source code, so it doesn't restart the
+   server every time a job writes to `uploads/` or `generated/`. The backend server will
+   start at `http://127.0.0.1:8000`. You can access the interactive API docs (Swagger) at
+   `http://127.0.0.1:8000/docs`.
 
 ---
 
