@@ -52,3 +52,15 @@ class GithubRepoNotFoundError(CodeOracleError):
 
 class GithubDownloadTimeoutError(CodeOracleError):
     pass
+
+
+class GeminiNotConfiguredError(CodeOracleError):
+    pass
+
+
+class GeminiRateLimitError(CodeOracleError):
+    pass
+
+
+class GeminiTimeoutError(CodeOracleError):
+    pass

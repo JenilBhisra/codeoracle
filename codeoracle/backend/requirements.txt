@@ -7,3 +7,5 @@ pytest>=7.4.0
 httpx>=0.24.0
 coverage>=7.4.0
 esprima>=4.0.1
+google-genai>=1.0.0
+langchain-core>=0.3.0

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Gemini API (used starting in Backend Phase 6)
     gemini_api_key: str = ""
     gemini_model: str = ""
+    gemini_timeout_seconds: float = 30.0
+    gemini_max_retries: int = 3
+    gemini_retry_base_seconds: float = 1.0
+    gemini_max_concurrency: int = 2
 
     # Upload / processing limits
     max_upload_mb: int = 20
