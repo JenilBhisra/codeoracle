@@ -5,11 +5,13 @@ from app.services.ingest_service import IngestResult, discover_source_files, enf
 from app.utils.zip_safety import safe_extract_zip, validate_upload_size
 
 
-def process_zip_source(zip_path: Path, extract_to: Path) -> IngestResult:
+def process_zip_source(zip_path: Path, extract_to: Path, *, project_name: str | None = None) -> IngestResult:
     """Validate, safely extract, and discover source files from a ZIP archive.
 
     Shared by both the direct-upload flow and the GitHub-download flow, since
-    both ultimately hand this function a ZIP file sitting on disk.
+    both ultimately hand this function a ZIP file sitting on disk. `project_name`
+    lets the caller supply a meaningful name (uploaded filename, repo name)
+    instead of falling back to the extraction directory's own name.
     """
     validate_upload_size(zip_path, settings.max_upload_mb)
 
@@ -21,6 +23,6 @@ def process_zip_source(zip_path: Path, extract_to: Path) -> IngestResult:
         max_extracted_bytes=max_extracted_bytes,
     )
 
-    result = discover_source_files(extract_to, max_file_bytes=settings.max_file_bytes)
+    result = discover_source_files(extract_to, max_file_bytes=settings.max_file_bytes, project_name=project_name)
     enforce_line_limit(result, max_source_lines=settings.max_source_lines)
     return result

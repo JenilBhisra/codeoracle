@@ -28,7 +28,9 @@ def count_lines(file_path: Path) -> int:
         return sum(1 for _ in f)
 
 
-def discover_source_files(root_dir: Path, *, max_file_bytes: int) -> IngestResult:
+def discover_source_files(
+    root_dir: Path, *, max_file_bytes: int, project_name: str | None = None
+) -> IngestResult:
     files: list[DiscoveredFile] = []
     skipped: list[str] = []
     languages: set[str] = set()
@@ -80,7 +82,7 @@ def discover_source_files(root_dir: Path, *, max_file_bytes: int) -> IngestResul
         raise NoSourceFilesError("No supported Python or JavaScript source files were found.")
 
     return IngestResult(
-        project_name=root_dir.name,
+        project_name=project_name or root_dir.name,
         root_dir=root_dir,
         files=files,
         languages=sorted(languages),
