@@ -14,6 +14,7 @@ from app.services.analyzer_service import analyze_codebase
 from app.services.explanation_service import explain_project
 from app.services.github_service import download_github_repo_zip
 from app.services.graph_service import build_dependency_graph
+from app.services.refactor_service import generate_refactors_for_project
 from app.services.test_generation_service import generate_tests_for_project
 from app.services.upload_service import process_zip_source
 from app.utils.cleanup import cleanup_dir
@@ -114,13 +115,12 @@ def run_job_pipeline(
         _update_job(job_id, status=JobStatus.GENERATING_TESTS, message="Generating tests")
         generated_tests, test_warnings = generate_tests_for_project(codebase)
 
-        # Phase 9 (Gemini-backed refactor generation) isn't implemented yet;
-        # the state machine still passes through this stage so the job's
-        # progress reporting is already forward-compatible with the final
-        # pipeline.
         _update_job(job_id, status=JobStatus.REFACTORING, message="Generating refactor proposals")
+        refactor_proposals, refactor_warnings = generate_refactors_for_project(codebase, extract_dir)
 
-        warnings = codebase.warnings + graph.warnings + explanation.warnings + test_warnings
+        warnings = (
+            codebase.warnings + graph.warnings + explanation.warnings + test_warnings + refactor_warnings
+        )
         results = {
             "job_id": job_id,
             "status": JobStatus.COMPLETED.value,
@@ -135,7 +135,7 @@ def run_job_pipeline(
             "explanation": explanation.model_dump(),
             "dependency_graph": graph.model_dump(),
             "generated_tests": [t.model_dump() for t in generated_tests],
-            "refactored_files": [],
+            "refactored_files": [p.model_dump() for p in refactor_proposals],
             "warnings": warnings,
         }
 
