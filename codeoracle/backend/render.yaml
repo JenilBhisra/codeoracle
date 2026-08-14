@@ -5,6 +5,13 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ALLOWED_ORIGINS
+      - key: FRONTEND_ORIGINS
         sync: false
         placeholder: "Comma-separated frontend origins (e.g. https://codeoracle.onrender.com)"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: GEMINI_FALLBACK_MODELS
+        sync: false
+        placeholder: "Comma-separated fallback models, e.g. gemini-2.5-flash-lite,gemini-flash-latest"
