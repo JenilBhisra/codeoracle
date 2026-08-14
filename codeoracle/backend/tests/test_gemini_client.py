@@ -1,8 +1,40 @@
+import httpx
 import pytest
 
 from app.core.config import settings
 from app.core.exceptions import GeminiNotConfiguredError, GeminiRateLimitError, GeminiTimeoutError
 from app.services import gemini_client
+
+
+class _RaisingModels:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def generate_content(self, model, contents):
+        raise self._exc
+
+
+class _FakeClient:
+    def __init__(self, exc):
+        self.models = _RaisingModels(exc)
+
+
+def test_call_gemini_once_translates_httpx_read_timeout(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(httpx.ReadTimeout("timed out")))
+
+    with pytest.raises(GeminiTimeoutError):
+        gemini_client.call_gemini_once("hello")
+
+
+def test_call_gemini_once_translates_httpx_connect_error(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(httpx.ConnectError("refused")))
+
+    with pytest.raises(GeminiTimeoutError):
+        gemini_client.call_gemini_once("hello")
 
 
 def test_call_gemini_once_raises_when_model_missing(monkeypatch):

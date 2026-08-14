@@ -1,6 +1,7 @@
 import threading
 import time
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -41,6 +42,13 @@ def call_gemini_once(prompt: str) -> str:
         if exc.code in _TIMEOUT_CODES:
             raise GeminiTimeoutError("Timed out while calling Gemini.") from exc
         raise
+    except httpx.HTTPError as exc:
+        # Transport-level failures (read timeout, connection reset, DNS) never
+        # reach the SDK's response parsing, so they surface as raw httpx
+        # exceptions rather than genai_errors.APIError. Treated the same as a
+        # Gemini-side timeout so call_gemini retries them instead of letting
+        # them crash the whole job.
+        raise GeminiTimeoutError("Network error while calling Gemini.") from exc
 
     return response.text or ""
 
