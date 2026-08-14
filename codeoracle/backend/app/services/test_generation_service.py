@@ -11,10 +11,10 @@ from app.models.tests import (
     TypeBreakdown,
 )
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
-from app.services.gemini_structured import generate_structured
+from app.services.groq_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
-NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); test generation was skipped."
+NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); test generation was skipped."
 
 MAX_FUNCTIONS_PER_FILE = 8
 TEST_TYPES = ("happy_path", "edge_case", "error_case", "mocked_dependency")
@@ -36,8 +36,8 @@ TEST_CHUNK_TASK_TEMPLATE = (
 )
 
 
-def _is_gemini_configured() -> bool:
-    return bool(settings.gemini_api_key and settings.gemini_model)
+def _is_groq_configured() -> bool:
+    return bool(settings.groq_api_key and settings.groq_model)
 
 
 def _is_public(name: str) -> bool:
@@ -96,11 +96,11 @@ def _select_targetable_files(analysis: CodebaseAnalysis) -> list[tuple[FileAnaly
 def generate_tests_for_chunk(
     files_with_functions: list[tuple[FileAnalysis, list[FunctionInfo]]], *, framework: str
 ) -> tuple[dict[str, GeneratedTestFile], str | None]:
-    """One Gemini call covering multiple files' test generation at once.
+    """One Groq call covering multiple files' test generation at once.
 
     Batching this the same way explanation generation does keeps the total
-    number of Gemini calls (and therefore how fast free-tier rate limits get
-    hit) roughly proportional to project size / chunk budget rather than to
+    number of Groq calls (and therefore how fast rate limits get hit)
+    roughly proportional to project size / chunk budget rather than to
     file count.
     """
     schema = json.dumps(GeneratedTestChunkResponse.model_json_schema())
@@ -185,14 +185,14 @@ def generate_tests_for_project(
 
     Files are grouped by language (each needs its own test framework) and
     then batched into chunks by size budget, so a project with many small
-    files costs a handful of Gemini calls instead of one call per file.
+    files costs a handful of Groq calls instead of one call per file.
 
     We never execute uploaded code on this host, so coverage is always
     labeled "estimated" (based on which lines the targeted functions span),
     never "measured" - only our own backend's benchmark suite is trusted
     enough to run and get real coverage numbers.
     """
-    if not _is_gemini_configured():
+    if not _is_groq_configured():
         return GeneratedTestsResult(), [NOT_CONFIGURED_WARNING]
 
     targetable = _select_targetable_files(analysis)
@@ -218,7 +218,7 @@ def generate_tests_for_project(
             for file, _functions in chunk_entries:
                 test_file = files_by_path.get(file.path)
                 if test_file is None:
-                    warnings.append(f"{file.path}: Gemini did not return a test file for this path")
+                    warnings.append(f"{file.path}: Groq did not return a test file for this path")
                     continue
                 generated.append(test_file)
 

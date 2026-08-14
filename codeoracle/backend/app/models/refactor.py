@@ -22,9 +22,9 @@ ImpactArea = Literal[
 
 
 class RefactorFileResponse(BaseModel):
-    """Shape Gemini must return for one file's refactor proposal within a batched chunk call.
+    """Shape Groq must return for one file's refactor proposal within a batched chunk call.
 
-    `original_code` isn't asked of Gemini at all: we already have the real
+    `original_code` isn't asked of Groq at all: we already have the real
     source on disk, so we attach it ourselves rather than trust a model to
     echo it back verbatim.
     """
@@ -41,7 +41,7 @@ class RefactorFileResponse(BaseModel):
 
 
 class RefactorChunkResponse(BaseModel):
-    """Shape Gemini must return for one map-step call covering a chunk of files."""
+    """Shape Groq must return for one map-step call covering a chunk of files."""
 
     files: list[RefactorFileResponse] = Field(default_factory=list)
 
