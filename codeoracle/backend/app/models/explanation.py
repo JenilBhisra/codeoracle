@@ -63,11 +63,11 @@ class ProjectExplanation(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-# --- Gemini-facing schemas (narrative/judgment only) -----------------------
+# --- Groq-facing schemas (narrative/judgment only) --------------------------
 #
 # Static facts (signatures, parameter types, import lists, call names,
-# function/class counts) are never asked of Gemini - they're computed
-# directly from the ast/esprima analysis and merged in afterward. Gemini
+# function/class counts) are never asked of Groq - they're computed
+# directly from the ast/esprima analysis and merged in afterward. Groq
 # only supplies the things that require understanding intent: summaries,
 # descriptions, risk, and confidence.
 
@@ -92,13 +92,13 @@ class ModuleNarrative(BaseModel):
 
 
 class ChunkExplanationResult(BaseModel):
-    """Shape Gemini must return for one map-step call covering a chunk of files."""
+    """Shape Groq must return for one map-step call covering a chunk of files."""
 
     modules: list[ModuleNarrative] = Field(default_factory=list)
 
 
 class ProjectOverviewResult(BaseModel):
-    """Shape Gemini must return for the reduce-step project summary call."""
+    """Shape Groq must return for the reduce-step project summary call."""
 
     project_summary: str
     architecture_overview: str

@@ -16,10 +16,10 @@ from app.models.explanation import (
 )
 from app.models.graph import DependencyGraph
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
-from app.services.gemini_structured import generate_structured
+from app.services.groq_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
-NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); explanations were skipped."
+NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); explanations were skipped."
 
 CHUNK_TASK = (
     "For EACH file in the facts above, return one entry in `modules` with `id` "
@@ -43,8 +43,8 @@ OVERVIEW_TASK = (
 )
 
 
-def _is_gemini_configured() -> bool:
-    return bool(settings.gemini_api_key and settings.gemini_model)
+def _is_groq_configured() -> bool:
+    return bool(settings.groq_api_key and settings.groq_model)
 
 
 def _derive_entry_points(files: list[FileAnalysis]) -> list[str]:
@@ -176,7 +176,7 @@ def explain_project(
     file_tree = _build_file_tree(analysis.files)
     analyzable_files = [f for f in analysis.files if f.syntax_error is None]
 
-    if not _is_gemini_configured():
+    if not _is_groq_configured():
         return ProjectExplanation(
             languages=analysis.languages,
             entry_points=entry_points,

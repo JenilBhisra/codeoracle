@@ -54,13 +54,13 @@ class GithubDownloadTimeoutError(CodeOracleError):
     pass
 
 
-class GeminiNotConfiguredError(CodeOracleError):
+class GroqNotConfiguredError(CodeOracleError):
     pass
 
 
-class GeminiRateLimitError(CodeOracleError):
+class GroqRateLimitError(CodeOracleError):
     pass
 
 
-class GeminiTimeoutError(CodeOracleError):
+class GroqTimeoutError(CodeOracleError):
     pass

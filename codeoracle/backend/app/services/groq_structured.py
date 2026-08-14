@@ -5,7 +5,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.core.exceptions import CodeOracleError
-from app.services.gemini_client import call_gemini
+from app.services.groq_client import call_groq
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +34,17 @@ def _try_parse(raw: str, response_model: type[T]) -> tuple[T | None, str | None]
 
 
 def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None, str | None]:
-    """Call Gemini and parse+validate the response as `response_model`.
+    """Call Groq and parse+validate the response as `response_model`.
 
     Never raises for AI-side failures (missing config, rate limit, timeout,
     invalid JSON) - always returns (None, warning) instead, so a flaky or
-    misconfigured Gemini call degrades one optional step rather than taking
+    misconfigured Groq call degrades one optional step rather than taking
     down the whole job.
     """
     try:
-        raw = call_gemini(prompt)
+        raw = call_groq(prompt)
     except CodeOracleError as exc:
-        return None, f"Gemini call failed: {exc.message}"
+        return None, f"Groq call failed: {exc.message}"
 
     parsed, error = _try_parse(raw, response_model)
     if parsed is not None:
@@ -57,14 +57,14 @@ def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None,
         "markdown formatting, no extra text before or after the JSON."
     )
     try:
-        raw_retry = call_gemini(repair_prompt)
+        raw_retry = call_groq(repair_prompt)
     except CodeOracleError as exc:
-        return None, f"Gemini call failed: {exc.message}"
+        return None, f"Groq call failed: {exc.message}"
 
     parsed, error = _try_parse(raw_retry, response_model)
     if parsed is not None:
         return parsed, None
 
-    warning = f"Gemini returned invalid JSON that could not be repaired: {error}"
+    warning = f"Groq returned invalid JSON that could not be repaired: {error}"
     logger.warning(warning)
     return None, warning

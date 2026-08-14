@@ -6,9 +6,9 @@ from app.services.js_analyzer import analyze_javascript_file
 from app.services.python_analyzer import analyze_python_file
 
 
-def _configure_gemini(monkeypatch):
-    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
-    monkeypatch.setattr(settings, "gemini_model", "fake-model")
+def _configure_groq(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "fake-key")
+    monkeypatch.setattr(settings, "groq_model", "fake-model")
 
 
 def _analysis(files):
@@ -84,7 +84,7 @@ def test_select_priority_functions_uses_branch_count_as_tiebreaker():
 
 
 def test_generate_tests_for_chunk_returns_result_keyed_by_target_file(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     file = analyze_python_file("app/mod.py", "def add(a, b):\n    return a + b\n", line_count=2)
     functions = test_generation_service.select_priority_functions(file)
 
@@ -118,7 +118,7 @@ def test_generate_tests_for_chunk_returns_result_keyed_by_target_file(monkeypatc
 
 
 def test_generate_tests_for_chunk_returns_warning_on_generation_failure(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     file = analyze_python_file("app/mod.py", "def add(a, b):\n    return a + b\n", line_count=2)
     functions = test_generation_service.select_priority_functions(file)
 
@@ -134,8 +134,8 @@ def test_generate_tests_for_chunk_returns_warning_on_generation_failure(monkeypa
 
 
 def test_generate_tests_for_project_skips_when_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "gemini_api_key", "")
-    monkeypatch.setattr(settings, "gemini_model", "")
+    monkeypatch.setattr(settings, "groq_api_key", "")
+    monkeypatch.setattr(settings, "groq_model", "")
     files = [analyze_python_file("app/mod.py", "def f():\n    pass\n", line_count=2)]
 
     result, warnings = test_generation_service.generate_tests_for_project(_analysis(files))
@@ -146,7 +146,7 @@ def test_generate_tests_for_project_skips_when_not_configured(monkeypatch):
 
 
 def test_generate_tests_for_project_skips_files_with_no_functions_and_syntax_errors(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     empty = analyze_python_file("app/empty.py", "x = 1\n", line_count=1)
     broken = analyze_python_file("app/broken.py", "def broken(:", line_count=1)
     good = analyze_python_file("app/good.py", "def f():\n    pass\n", line_count=2)
@@ -176,7 +176,7 @@ def test_generate_tests_for_project_skips_files_with_no_functions_and_syntax_err
 
 
 def test_generate_tests_for_project_uses_pytest_for_python_and_vitest_for_js(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     py_file = analyze_python_file("app/mod.py", "def f():\n    pass\n", line_count=2)
     js_file = analyze_javascript_file("src/mod.js", "export function f() { return 1; }\n", line_count=1)
 
@@ -204,7 +204,7 @@ def test_generate_tests_for_project_uses_pytest_for_python_and_vitest_for_js(mon
 
 
 def test_generate_tests_for_project_continues_when_one_chunk_fails(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     file_a = analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2)
     file_b = analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2)
 
@@ -233,7 +233,7 @@ def test_generate_tests_for_project_continues_when_one_chunk_fails(monkeypatch):
 
 
 def test_coverage_label_is_never_measured(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     file = analyze_python_file("app/mod.py", "def f():\n    pass\n", line_count=2)
 
     monkeypatch.setattr(
@@ -257,7 +257,7 @@ def test_coverage_label_is_never_measured(monkeypatch):
 
 
 def test_breakdown_counts_files_per_type(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     file_a = analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2)
     file_b = analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2)
 

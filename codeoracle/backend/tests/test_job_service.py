@@ -61,7 +61,7 @@ def test_run_job_pipeline_writes_results_matching_contract_shape(tmp_path, job_d
     assert results["summary"]["file_count"] == 2
     assert "nodes" in results["dependency_graph"]
     assert "edges" in results["dependency_graph"]
-    # No GEMINI_API_KEY in the test environment, so narrative generation
+    # No GROQ_API_KEY in the test environment, so narrative generation
     # gracefully skips - but static facts (file_tree, signatures, imports)
     # still populate the modules, just with empty purpose/explanation text.
     assert len(results["explanation"]["modules"]) == 2
@@ -77,8 +77,8 @@ def test_run_job_pipeline_reads_correct_source_for_refactor_with_wrapper_directo
     still let the refactor step read each file's real source, even though
     ingest_service collapses that wrapper for module ids/relative paths.
     """
-    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
-    monkeypatch.setattr(settings, "gemini_model", "fake-model")
+    monkeypatch.setattr(settings, "groq_api_key", "fake-key")
+    monkeypatch.setattr(settings, "groq_model", "fake-model")
 
     zip_path = make_zip(
         tmp_path / "src.zip",

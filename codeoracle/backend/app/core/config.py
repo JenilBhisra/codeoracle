@@ -68,18 +68,18 @@ class Settings(BaseSettings):
     # CORS - comma-separated list of allowed frontend origins
     frontend_origins: str = "http://localhost:5173"
 
-    # Gemini API (used starting in Backend Phase 6)
-    gemini_api_key: str = ""
-    gemini_model: str = ""
-    # Comma-separated models tried in order if gemini_model is exhausted/unavailable -
+    # Groq API (used starting in Backend Phase 6)
+    groq_api_key: str = ""
+    groq_model: str = ""
+    # Comma-separated models tried in order if groq_model is exhausted/unavailable -
     # different models have independent rate-limit quotas, so falling back to another
-    # one can keep a demo working even if the primary model's free-tier quota is spent.
-    gemini_fallback_models: str = ""
-    gemini_timeout_seconds: float = 30.0
-    gemini_max_retries: int = 3
-    gemini_retry_base_seconds: float = 1.0
-    gemini_rate_limit_backoff_seconds: float = 20.0
-    gemini_max_concurrency: int = 2
+    # one can keep a demo working even if the primary model's quota is spent.
+    groq_fallback_models: str = ""
+    groq_timeout_seconds: float = 30.0
+    groq_max_retries: int = 3
+    groq_retry_base_seconds: float = 1.0
+    groq_rate_limit_backoff_seconds: float = 20.0
+    groq_max_concurrency: int = 2
 
     # Upload / processing limits
     max_upload_mb: int = 20
@@ -94,8 +94,8 @@ class Settings(BaseSettings):
         return _effective_origins(self.frontend_origins)
 
     @property
-    def gemini_fallback_models_list(self) -> list[str]:
-        return [model.strip() for model in self.gemini_fallback_models.split(",") if model.strip()]
+    def groq_fallback_models_list(self) -> list[str]:
+        return [model.strip() for model in self.groq_fallback_models.split(",") if model.strip()]
 
 
 @lru_cache

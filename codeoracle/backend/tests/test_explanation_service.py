@@ -11,9 +11,9 @@ from app.services import explanation_service
 from app.services.python_analyzer import analyze_python_file
 
 
-def _configure_gemini(monkeypatch):
-    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
-    monkeypatch.setattr(settings, "gemini_model", "fake-model")
+def _configure_groq(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "fake-key")
+    monkeypatch.setattr(settings, "groq_model", "fake-model")
 
 
 def _analysis(files):
@@ -123,9 +123,9 @@ def test_merge_module_combines_static_facts_with_narrative():
     assert func.confidence == "high"
 
 
-def test_explain_project_skips_when_gemini_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "gemini_api_key", "")
-    monkeypatch.setattr(settings, "gemini_model", "")
+def test_explain_project_skips_when_groq_not_configured(monkeypatch):
+    monkeypatch.setattr(settings, "groq_api_key", "")
+    monkeypatch.setattr(settings, "groq_model", "")
     files = [analyze_python_file("app/main.py", "def f():\n    pass\n", line_count=2)]
 
     result = explanation_service.explain_project(_analysis(files), DependencyGraph())
@@ -138,7 +138,7 @@ def test_explain_project_skips_when_gemini_not_configured(monkeypatch):
 
 
 def test_explain_project_combines_map_and_reduce_results(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     files = [analyze_python_file("app/main.py", "def f():\n    pass\n", line_count=2)]
 
     def fake_generate_structured(prompt, response_model):
@@ -160,7 +160,7 @@ def test_explain_project_combines_map_and_reduce_results(monkeypatch):
 
 
 def test_explain_project_continues_when_one_chunk_fails(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     # two files, tiny per-chunk budget forces two separate chunk calls
     files = [
         analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2),
@@ -192,7 +192,7 @@ def test_explain_project_continues_when_one_chunk_fails(monkeypatch):
 
 
 def test_explain_project_handles_overview_failure_gracefully(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     files = [analyze_python_file("app/main.py", "def f():\n    pass\n", line_count=2)]
 
     def fake_generate_structured(prompt, response_model):
@@ -213,7 +213,7 @@ def test_explain_project_handles_overview_failure_gracefully(monkeypatch):
 
 
 def test_explain_chunk_returns_empty_and_warning_on_failure(monkeypatch):
-    _configure_gemini(monkeypatch)
+    _configure_groq(monkeypatch)
     files = [analyze_python_file("app/main.py", "def f():\n    pass\n", line_count=2)]
 
     monkeypatch.setattr(explanation_service, "generate_structured", lambda prompt, response_model: (None, "boom"))
