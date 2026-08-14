@@ -17,9 +17,16 @@ app = FastAPI(
     version="0.1.0",
 )
 
+_allowed_origins = settings.frontend_origins_list
+# warning (not info) so this is guaranteed visible in Render's logs without
+# needing global log-level configuration - the whole point is to show
+# exactly what got parsed at startup when the dashboard value and the
+# running app's behavior disagree.
+logger.warning("CORS: allowing origins %r (raw FRONTEND_ORIGINS=%r)", _allowed_origins, settings.frontend_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.frontend_origins_list,
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

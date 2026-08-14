@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -6,6 +7,33 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 GENERATED_DIR = BASE_DIR / "generated"
+
+# Zero-width/invisible characters that can silently ride along when a value is
+# pasted into a web form (e.g. a dashboard env-var field) - str.strip() alone
+# does not remove these, and a stray one is invisible in a screenshot but
+# still breaks CORSMiddleware's exact string match against the Origin header.
+_INVISIBLE_CHARS = "​‌‍﻿ "
+
+
+def _normalize_origin(origin: str) -> str:
+    origin = origin.strip().strip(_INVISIBLE_CHARS)
+    # Browsers never include a trailing slash in the Origin header they send,
+    # so one left in config would otherwise cause a silent, exact-match miss.
+    return origin.rstrip("/")
+
+
+def _parse_origin_list(raw: str) -> list[str]:
+    """Parse an origins setting as either a JSON array or a comma-separated string."""
+    raw = raw.strip()
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            return [_normalize_origin(str(item)) for item in parsed if str(item).strip()]
+
+    return [_normalize_origin(origin) for origin in raw.split(",") if origin.strip()]
 
 
 class Settings(BaseSettings):
@@ -43,7 +71,7 @@ class Settings(BaseSettings):
 
     @property
     def frontend_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
+        return _parse_origin_list(self.frontend_origins)
 
     @property
     def gemini_fallback_models_list(self) -> list[str]:
