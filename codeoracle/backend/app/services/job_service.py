@@ -152,7 +152,7 @@ def run_job_pipeline(
         generated_tests, test_warnings = generate_tests_for_project(codebase)
 
         _update_job(job_id, status=JobStatus.REFACTORING, message="Generating refactor proposals")
-        refactor_proposals, refactor_warnings = generate_refactors_for_project(codebase, extract_dir)
+        refactor_proposals, refactor_warnings = generate_refactors_for_project(codebase, ingest_result.root_dir)
 
         warnings = _structure_warnings(
             codebase.warnings + graph.warnings + explanation.warnings + test_warnings + refactor_warnings

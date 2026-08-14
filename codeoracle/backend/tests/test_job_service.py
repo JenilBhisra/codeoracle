@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from app.core.config import settings
 from app.models.job import JobStatus
 from app.services import job_service
 from tests.helpers import make_zip
@@ -68,6 +69,55 @@ def test_run_job_pipeline_writes_results_matching_contract_shape(tmp_path, job_d
     assert "not configured" in results["explanation"]["warnings"][0].lower()
     assert results["generated_tests"]["files"] == []
     assert results["refactored_files"] == []
+
+
+def test_run_job_pipeline_reads_correct_source_for_refactor_with_wrapper_directory(tmp_path, job_dirs, monkeypatch):
+    """Regression test: a zip wrapped in a single top-level directory (the
+    shape GitHub's export and most "zip my folder" workflows produce) must
+    still let the refactor step read each file's real source, even though
+    ingest_service collapses that wrapper for module ids/relative paths.
+    """
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(settings, "gemini_model", "fake-model")
+
+    zip_path = make_zip(
+        tmp_path / "src.zip",
+        {"myrepo-main/app.py": "def f(a):\n    return a\n"},
+    )
+
+    from app.models.explanation import ChunkExplanationResult
+    from app.models.refactor import RefactorProposalResponse
+
+    def fake_generate_structured(prompt, response_model):
+        if response_model is ChunkExplanationResult:
+            return ChunkExplanationResult(modules=[]), None
+        if response_model is RefactorProposalResponse:
+            return (
+                RefactorProposalResponse(
+                    refactored_code="def f(a: int) -> int:\n    return a\n",
+                    summary="add types",
+                    benefit="clearer intent",
+                    risk="low",
+                ),
+                None,
+            )
+        return None, "skip for this regression test"
+
+    monkeypatch.setattr("app.services.explanation_service.generate_structured", fake_generate_structured)
+    monkeypatch.setattr("app.services.refactor_service.generate_structured", fake_generate_structured)
+    monkeypatch.setattr("app.services.test_generation_service.generate_structured", fake_generate_structured)
+
+    job_id = job_service.create_job()
+    job_service.run_job_pipeline(job_id, job_service.obtain_uploaded_zip(zip_path))
+
+    record = job_service.get_job(job_id)
+    assert record.status == JobStatus.COMPLETED, record.error
+    results = json.loads(Path(record.results_path).read_text())
+
+    assert len(results["refactored_files"]) == 1
+    proposal = results["refactored_files"][0]
+    assert proposal["path"] == "app.py"
+    assert proposal["original_code"] == "def f(a):\n    return a\n"
 
 
 def test_run_job_pipeline_cleans_up_upload_dir_after_success(tmp_path, job_dirs):
