@@ -16,11 +16,13 @@ import {
   Eye,
   FileCode2,
   Sliders,
+  Activity,
 } from 'lucide-react';
 import AppShell from './components/layout/AppShell';
 import UploadForm from './components/input/UploadForm';
 import ProcessingView from './components/processing/ProcessingView';
 import ResultsDashboard from './components/results/ResultsDashboard';
+import ApiDiagnosticsModal from './components/common/ApiDiagnosticsModal';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/common/Card';
 import Badge from './components/common/Badge';
 import Button from './components/common/Button';
@@ -39,6 +41,7 @@ function App() {
   const [analysisResults, setAnalysisResults] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorState, setErrorState] = useState(null);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
 
   // Health check polling every 10s
   const verifyBackend = async () => {
@@ -150,9 +153,18 @@ function App() {
     <AppShell
       backendHealth={backendHealth}
       onRefreshHealth={verifyBackend}
+      onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       onReset={handleReset}
       showReset={appState !== APP_STATES.LANDING}
     >
+      {/* API Diagnostics Modal */}
+      <ApiDiagnosticsModal
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+        backendHealth={backendHealth}
+        onRefreshHealth={verifyBackend}
+      />
+
       {/* Global Error Banner Display */}
       {errorState && (
         <div className="max-w-3xl mx-auto w-full mb-8">

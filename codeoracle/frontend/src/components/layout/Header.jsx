@@ -8,12 +8,14 @@ import Button from '../common/Button';
  * @param {Object} props
  * @param {{ status: 'checking' | 'connected' | 'degraded' | 'disconnected', message: string }} props.backendHealth
  * @param {Function} [props.onRefreshHealth]
+ * @param {Function} [props.onOpenDiagnostics]
  * @param {Function} [props.onReset]
  * @param {boolean} [props.showReset=false]
  */
 export default function Header({
   backendHealth = { status: 'checking', message: 'Checking API...' },
   onRefreshHealth,
+  onOpenDiagnostics,
   onReset,
   showReset = false,
 }) {
@@ -84,17 +86,17 @@ export default function Header({
             </Button>
           )}
 
-          {/* Backend Health Status Badge */}
+          {/* Backend Health Status Badge -> Opens Diagnostics Modal */}
           <div
             className="flex items-center gap-1.5 cursor-pointer group"
-            onClick={onRefreshHealth}
-            title={`${backendHealth.message} (Click to re-check)`}
+            onClick={onOpenDiagnostics || onRefreshHealth}
+            title={`${backendHealth.message} (Click to open API Diagnostics)`}
           >
             <Badge
               variant={statusBadge.variant}
               size="md"
               dot={statusBadge.dot}
-              className="shadow-sm transition-all group-hover:border-white/30"
+              className="shadow-sm transition-all group-hover:border-purple-400/50 group-hover:scale-105"
             >
               {statusBadge.text}
             </Badge>

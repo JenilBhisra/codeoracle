@@ -8,6 +8,7 @@ import Footer from './Footer';
  * @param {React.ReactNode} props.children
  * @param {{ status: string, message: string }} props.backendHealth
  * @param {Function} [props.onRefreshHealth]
+ * @param {Function} [props.onOpenDiagnostics]
  * @param {Function} [props.onReset]
  * @param {boolean} [props.showReset=false]
  */
@@ -15,6 +16,7 @@ export default function AppShell({
   children,
   backendHealth,
   onRefreshHealth,
+  onOpenDiagnostics,
   onReset,
   showReset = false,
 }) {
@@ -29,6 +31,7 @@ export default function AppShell({
       <Header
         backendHealth={backendHealth}
         onRefreshHealth={onRefreshHealth}
+        onOpenDiagnostics={onOpenDiagnostics}
         onReset={onReset}
         showReset={showReset}
       />
