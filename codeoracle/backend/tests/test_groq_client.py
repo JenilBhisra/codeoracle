@@ -3,7 +3,7 @@ import httpx
 import pytest
 
 from app.core.config import settings
-from app.core.exceptions import GroqNotConfiguredError, GroqRateLimitError, GroqTimeoutError
+from app.core.exceptions import GroqGenerationError, GroqNotConfiguredError, GroqRateLimitError, GroqTimeoutError
 from app.services import groq_client
 
 
@@ -104,7 +104,41 @@ def test_call_groq_once_translates_internal_server_error(monkeypatch):
 
 def test_call_groq_once_reraises_non_transient_error(monkeypatch):
     _configure(monkeypatch)
-    exc = _status_error(groq.BadRequestError, 400)
+    exc = _status_error(groq.NotFoundError, 404)
+    monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _FakeClient(exc))
+
+    with pytest.raises(groq.NotFoundError):
+        groq_client.call_groq_once("hello", model="groq-test-model")
+
+
+def _bad_request_error(code: str | None) -> groq.BadRequestError:
+    body = {"error": {"message": "boom", "code": code}} if code else {"error": {"message": "boom"}}
+    response = httpx.Response(400, request=_FAKE_REQUEST)
+    return groq.BadRequestError("boom", response=response, body=body)
+
+
+def test_call_groq_once_translates_json_validate_failed_to_generation_error(monkeypatch):
+    _configure(monkeypatch)
+    exc = _bad_request_error("json_validate_failed")
+    monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _FakeClient(exc))
+
+    with pytest.raises(GroqGenerationError):
+        groq_client.call_groq_once("hello", model="groq-test-model")
+
+
+def test_call_groq_once_reraises_other_bad_request_codes_unchanged(monkeypatch):
+    _configure(monkeypatch)
+    exc = _bad_request_error("some_other_code")
+    monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _FakeClient(exc))
+
+    with pytest.raises(groq.BadRequestError):
+        groq_client.call_groq_once("hello", model="groq-test-model")
+
+
+def test_call_groq_once_reraises_bad_request_with_no_body_unchanged(monkeypatch):
+    _configure(monkeypatch)
+    response = httpx.Response(400, request=_FAKE_REQUEST)
+    exc = groq.BadRequestError("boom", response=response, body=None)
     monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _FakeClient(exc))
 
     with pytest.raises(groq.BadRequestError):
@@ -270,6 +304,26 @@ def test_call_groq_gives_up_after_max_retries(monkeypatch):
 
     with pytest.raises(GroqTimeoutError):
         groq_client.call_groq("prompt")
+
+
+def test_call_groq_retries_generation_errors_like_timeouts(monkeypatch):
+    """GroqGenerationError (Groq's own schema-generation failure) should get
+    the same retry-then-fallback treatment as a timeout, not crash the job -
+    that's the whole point of translating it instead of leaving it unhandled."""
+    _configure(monkeypatch, model="primary", fallback="backup")
+    monkeypatch.setattr(settings, "groq_max_retries", 2)
+    monkeypatch.setattr(groq_client.time, "sleep", lambda seconds: None)
+
+    def fake(prompt, *, model, **kwargs):
+        if model == "primary":
+            raise GroqGenerationError("failed to generate")
+        return "answer from backup"
+
+    monkeypatch.setattr(groq_client, "call_groq_once", fake)
+
+    result = groq_client.call_groq("prompt")
+
+    assert result == "answer from backup"
 
 
 def test_call_groq_uses_flat_rate_limit_backoff_not_exponential(monkeypatch):

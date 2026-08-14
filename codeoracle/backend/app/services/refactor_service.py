@@ -1,5 +1,7 @@
 import json
+import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.core.config import settings
@@ -8,6 +10,8 @@ from app.models.refactor import RefactorChunkResponse, RefactorProposal
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
 from app.services.groq_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
+
+logger = logging.getLogger(__name__)
 
 NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); refactor generation was skipped."
 
@@ -108,16 +112,28 @@ def generate_refactors_for_project(
     proposals: list[RefactorProposal] = []
     warnings: list[str] = []
 
-    for chunk in chunks:
-        proposals_by_path, warning = generate_refactors_for_chunk(chunk.files, sources)
-        if warning:
-            warnings.append(f"{chunk.chunk_id}: {warning}")
-            continue
-        for file in chunk.files:
-            proposal = proposals_by_path.get(file.path)
-            if proposal is None:
-                warnings.append(f"{file.path}: Groq did not return a refactor proposal for this path")
+    # Chunks are independent Groq calls, so run them concurrently (bounded by
+    # GROQ_MAX_CONCURRENCY) instead of one at a time - submitting all of them
+    # up front starts them all immediately, then processing results in the
+    # original chunk order keeps output deterministic regardless of which
+    # call actually finishes first.
+    with ThreadPoolExecutor(max_workers=settings.groq_max_concurrency) as executor:
+        futures = [executor.submit(generate_refactors_for_chunk, chunk.files, sources) for chunk in chunks]
+        for chunk, future in zip(chunks, futures):
+            try:
+                proposals_by_path, warning = future.result()
+            except Exception:
+                logger.exception("Unexpected error generating refactors for chunk %s", chunk.chunk_id)
+                warnings.append(f"{chunk.chunk_id}: unexpected error during refactor generation")
                 continue
-            proposals.append(proposal)
+            if warning:
+                warnings.append(f"{chunk.chunk_id}: {warning}")
+                continue
+            for file in chunk.files:
+                proposal = proposals_by_path.get(file.path)
+                if proposal is None:
+                    warnings.append(f"{file.path}: Groq did not return a refactor proposal for this path")
+                    continue
+                proposals.append(proposal)
 
     return proposals, warnings

@@ -6,7 +6,7 @@ import time
 import groq
 
 from app.core.config import settings
-from app.core.exceptions import GroqNotConfiguredError, GroqRateLimitError, GroqTimeoutError
+from app.core.exceptions import GroqGenerationError, GroqNotConfiguredError, GroqRateLimitError, GroqTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 # non-retryable client errors (bad request, auth, not found) via distinct
 # exception classes, so no manual status-code inspection is needed here.
 _TRANSIENT_ERRORS = (groq.APIConnectionError, groq.APITimeoutError, groq.InternalServerError)
+
+# 400 error codes that specifically mean "Groq's own generation/validation
+# step failed for this request" rather than "you sent something malformed" -
+# worth retrying/falling back on, unlike a genuine bad request (which would
+# fail identically every time and should surface loudly, not be swallowed).
+_TRANSIENT_BAD_REQUEST_CODES = {"json_validate_failed"}
 
 # Only these models currently support response_format={"type": "json_schema"}
 # (verified against https://console.groq.com/docs/structured-outputs - this
@@ -117,6 +123,21 @@ def call_groq_once(prompt: str, *, model: str, schema_name: str | None = None, s
         raise GroqRateLimitError("Groq rate limit reached. Please try again later.") from exc
     except _TRANSIENT_ERRORS as exc:
         raise GroqTimeoutError("Groq is temporarily unavailable.") from exc
+    except groq.BadRequestError as exc:
+        # Under strict json_schema mode, Groq can itself fail to produce a
+        # conforming response for a large/complex request (its own 400
+        # "Failed to generate JSON... json_validate_failed" error) - this is
+        # not a malformed request on our side (the same schema/prompt shape
+        # succeeds the vast majority of the time), so it's treated as
+        # retryable/fallback-able rather than left to crash the whole job
+        # the way an unhandled exception would. Any other 400 reason means
+        # we actually sent something wrong, which would fail identically on
+        # every retry - that re-raises unchanged so it surfaces loudly
+        # instead of being silently absorbed into a per-chunk warning.
+        code = (exc.body or {}).get("error", {}).get("code") if isinstance(exc.body, dict) else None
+        if code in _TRANSIENT_BAD_REQUEST_CODES:
+            raise GroqGenerationError("Groq failed to generate a response matching the schema.") from exc
+        raise
 
     return response.choices[0].message.content or ""
 
@@ -151,7 +172,7 @@ def call_groq(prompt: str, *, schema_name: str | None = None, schema: dict | Non
                 last_exc = exc
                 if attempt < settings.groq_max_retries - 1:
                     time.sleep(settings.groq_rate_limit_backoff_seconds)
-            except GroqTimeoutError as exc:
+            except (GroqTimeoutError, GroqGenerationError) as exc:
                 last_exc = exc
                 if attempt < settings.groq_max_retries - 1:
                     time.sleep(settings.groq_retry_base_seconds * (2**attempt))

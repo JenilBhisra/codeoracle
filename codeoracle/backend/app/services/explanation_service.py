@@ -1,4 +1,6 @@
 import json
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.core.config import settings
@@ -18,6 +20,8 @@ from app.models.graph import DependencyGraph
 from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
 from app.services.groq_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
+
+logger = logging.getLogger(__name__)
 
 NOT_CONFIGURED_WARNING = "Groq is not configured (GROQ_API_KEY/GROQ_MODEL); explanations were skipped."
 
@@ -191,11 +195,23 @@ def explain_project(
     narratives_by_id: dict[str, ModuleNarrative] = {}
     warnings: list[str] = []
 
-    for chunk in chunks:
-        chunk_narratives, warning = explain_chunk(chunk.files)
-        narratives_by_id.update(chunk_narratives)
-        if warning:
-            warnings.append(f"{chunk.chunk_id}: {warning}")
+    # Chunks are independent Groq calls, so run them concurrently (bounded by
+    # GROQ_MAX_CONCURRENCY) instead of one at a time - submitting all of them
+    # up front starts them all immediately, then iterating in the original
+    # chunk order keeps results deterministic regardless of which call
+    # actually finishes first.
+    with ThreadPoolExecutor(max_workers=settings.groq_max_concurrency) as executor:
+        futures = [executor.submit(explain_chunk, chunk.files) for chunk in chunks]
+        for chunk, future in zip(chunks, futures):
+            try:
+                chunk_narratives, warning = future.result()
+            except Exception:
+                logger.exception("Unexpected error explaining chunk %s", chunk.chunk_id)
+                warnings.append(f"{chunk.chunk_id}: unexpected error during explanation")
+                continue
+            narratives_by_id.update(chunk_narratives)
+            if warning:
+                warnings.append(f"{chunk.chunk_id}: {warning}")
 
     modules = [_merge_module(f, narratives_by_id.get(f.module)) for f in analyzable_files]
 
