@@ -72,10 +72,18 @@ class ProjectExplanation(BaseModel):
 # descriptions, risk, and confidence.
 
 
+class ParameterDescription(BaseModel):
+    name: str
+    description: str
+
+
 class FunctionNarrative(BaseModel):
     name: str
     explanation: str
-    parameter_descriptions: dict[str, str] = Field(default_factory=dict)
+    # A list of {name, description} rather than a free-form dict[str, str]:
+    # Groq's strict structured-output mode only supports fixed-shape
+    # objects, not open-ended string-keyed maps.
+    parameter_descriptions: list[ParameterDescription] = Field(default_factory=list)
     returns: str = ""
     side_effects: list[str] = Field(default_factory=list)
     risk: RiskLevel = "low"

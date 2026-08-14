@@ -1,3 +1,4 @@
+import copy
 import logging
 import threading
 import time
@@ -15,7 +16,65 @@ logger = logging.getLogger(__name__)
 # exception classes, so no manual status-code inspection is needed here.
 _TRANSIENT_ERRORS = (groq.APIConnectionError, groq.APITimeoutError, groq.InternalServerError)
 
+# Only these models currently support response_format={"type": "json_schema"}
+# (verified against https://console.groq.com/docs/structured-outputs - this
+# list will need updating as Groq adds support to more models). Every other
+# model falls back to the looser {"type": "json_object"} mode, which
+# guarantees valid JSON syntax but not schema conformance - that's what the
+# repair-retry pass in groq_structured.py exists to catch.
+_STRICT_SCHEMA_MODELS = {"openai/gpt-oss-120b", "openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b"}
+
 _semaphore = threading.Semaphore(settings.groq_max_concurrency)
+
+
+def _strictify_schema(schema: dict) -> dict:
+    """Adapt a Pydantic-generated JSON schema for Groq/OpenAI strict mode.
+
+    Strict mode requires every object to set `additionalProperties: false`
+    and list every one of its properties as `required` - Pydantic only marks
+    fields without defaults as required, so an unmodified model_json_schema()
+    output gets rejected. This doesn't change what's optional on the Python
+    side: forcing a field "required" here just means the model can't omit
+    the key, not that the field stops having a sensible default in Python.
+
+    Free-form maps (dict[str, X] fields, schema'd as an object with
+    `additionalProperties` set to a type rather than a fixed `properties`
+    list) aren't supported by strict mode at all and need a different Python
+    type (e.g. a list of {name, value} objects) - this function can't paper
+    over that; the model must not define such a field to use strict mode.
+    """
+    schema = copy.deepcopy(schema)
+
+    def walk(node: object) -> None:
+        if not isinstance(node, dict):
+            return
+        if "properties" in node:
+            node["required"] = list(node["properties"].keys())
+            node["additionalProperties"] = False
+            for value in node["properties"].values():
+                walk(value)
+        for key in ("$defs", "definitions"):
+            if key in node:
+                for value in node[key].values():
+                    walk(value)
+        if "items" in node:
+            walk(node["items"])
+        for key in ("anyOf", "oneOf", "allOf"):
+            if key in node:
+                for value in node[key]:
+                    walk(value)
+
+    walk(schema)
+    return schema
+
+
+def _response_format(model: str, *, schema_name: str, schema: dict) -> dict:
+    if model in _STRICT_SCHEMA_MODELS:
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": schema_name, "schema": _strictify_schema(schema), "strict": True},
+        }
+    return {"type": "json_object"}
 
 
 def _build_client() -> groq.Groq:
@@ -33,18 +92,26 @@ def _model_chain() -> list[str]:
     return models
 
 
-def call_groq_once(prompt: str, *, model: str) -> str:
+def call_groq_once(prompt: str, *, model: str, schema_name: str | None = None, schema: dict | None = None) -> str:
     """The only function that actually talks to the Groq API.
 
     Kept tiny and isolated so tests can monkeypatch this single function
-    instead of mocking the SDK's client/response objects.
+    instead of mocking the SDK's client/response objects. When schema_name/
+    schema are given and the model supports it, requests are constrained to
+    that exact JSON shape server-side; otherwise falls back to best-effort
+    JSON mode.
     """
     client = _build_client()
+    if schema_name and schema is not None:
+        response_format = _response_format(model, schema_name=schema_name, schema=schema)
+    else:
+        response_format = {"type": "json_object"}
+
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
+            response_format=response_format,
         )
     except groq.RateLimitError as exc:
         raise GroqRateLimitError("Groq rate limit reached. Please try again later.") from exc
@@ -54,7 +121,7 @@ def call_groq_once(prompt: str, *, model: str) -> str:
     return response.choices[0].message.content or ""
 
 
-def call_groq(prompt: str) -> str:
+def call_groq(prompt: str, *, schema_name: str | None = None, schema: dict | None = None) -> str:
     """Rate-limited, retrying, model-falling-back entry point - use this everywhere else.
 
     Limits concurrent in-flight requests with a semaphore and retries
@@ -79,7 +146,7 @@ def call_groq(prompt: str) -> str:
         for attempt in range(settings.groq_max_retries):
             try:
                 with _semaphore:
-                    return call_groq_once(prompt, model=model)
+                    return call_groq_once(prompt, model=model, schema_name=schema_name, schema=schema)
             except GroqRateLimitError as exc:
                 last_exc = exc
                 if attempt < settings.groq_max_retries - 1:

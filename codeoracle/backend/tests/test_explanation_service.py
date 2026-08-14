@@ -4,6 +4,7 @@ from app.models.explanation import (
     ChunkExplanationResult,
     FunctionNarrative,
     ModuleNarrative,
+    ParameterDescription,
     ProjectOverviewResult,
 )
 from app.models.graph import DependencyGraph, GraphNode
@@ -103,7 +104,7 @@ def test_merge_module_combines_static_facts_with_narrative():
             FunctionNarrative(
                 name="f",
                 explanation="Returns the input unchanged.",
-                parameter_descriptions={"a": "The input value"},
+                parameter_descriptions=[ParameterDescription(name="a", description="The input value")],
                 returns="The same value",
                 side_effects=[],
                 risk="low",

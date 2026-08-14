@@ -11,7 +11,7 @@ class Explanation(BaseModel):
 
 def test_generate_structured_parses_valid_json(monkeypatch):
     monkeypatch.setattr(
-        groq_structured, "call_groq", lambda prompt: '{"summary": "does a thing", "risk": "low"}'
+        groq_structured, "call_groq", lambda prompt, **kwargs: '{"summary": "does a thing", "risk": "low"}'
     )
 
     result, warning = groq_structured.generate_structured("explain", Explanation)
@@ -22,7 +22,7 @@ def test_generate_structured_parses_valid_json(monkeypatch):
 
 def test_generate_structured_strips_markdown_fences(monkeypatch):
     monkeypatch.setattr(
-        groq_structured, "call_groq", lambda prompt: '```json\n{"summary": "fenced", "risk": "low"}\n```'
+        groq_structured, "call_groq", lambda prompt, **kwargs: '```json\n{"summary": "fenced", "risk": "low"}\n```'
     )
 
     result, warning = groq_structured.generate_structured("explain", Explanation)
@@ -34,7 +34,7 @@ def test_generate_structured_strips_markdown_fences(monkeypatch):
 def test_generate_structured_repairs_after_first_bad_response(monkeypatch):
     calls = {"count": 0}
 
-    def fake_call(prompt):
+    def fake_call(prompt, **kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
             return "not json"
@@ -50,7 +50,7 @@ def test_generate_structured_repairs_after_first_bad_response(monkeypatch):
 
 
 def test_generate_structured_returns_warning_when_repair_also_fails(monkeypatch):
-    monkeypatch.setattr(groq_structured, "call_groq", lambda prompt: "still not json")
+    monkeypatch.setattr(groq_structured, "call_groq", lambda prompt, **kwargs: "still not json")
 
     result, warning = groq_structured.generate_structured("explain", Explanation)
 
@@ -60,7 +60,7 @@ def test_generate_structured_returns_warning_when_repair_also_fails(monkeypatch)
 
 
 def test_generate_structured_returns_warning_on_schema_mismatch(monkeypatch):
-    monkeypatch.setattr(groq_structured, "call_groq", lambda prompt: '{"wrong_field": 1}')
+    monkeypatch.setattr(groq_structured, "call_groq", lambda prompt, **kwargs: '{"wrong_field": 1}')
 
     result, warning = groq_structured.generate_structured("explain", Explanation)
 
@@ -69,7 +69,7 @@ def test_generate_structured_returns_warning_on_schema_mismatch(monkeypatch):
 
 
 def test_generate_structured_never_raises_on_groq_call_failure(monkeypatch):
-    def raise_rate_limit(prompt):
+    def raise_rate_limit(prompt, **kwargs):
         raise GroqRateLimitError("rate limited")
 
     monkeypatch.setattr(groq_structured, "call_groq", raise_rate_limit)
@@ -78,3 +78,18 @@ def test_generate_structured_never_raises_on_groq_call_failure(monkeypatch):
 
     assert result is None
     assert "Groq call failed" in warning
+
+
+def test_generate_structured_passes_response_model_schema_to_call_groq(monkeypatch):
+    seen = {}
+
+    def fake_call(prompt, **kwargs):
+        seen.update(kwargs)
+        return '{"summary": "x", "risk": "low"}'
+
+    monkeypatch.setattr(groq_structured, "call_groq", fake_call)
+
+    groq_structured.generate_structured("explain", Explanation)
+
+    assert seen["schema_name"] == "Explanation"
+    assert seen["schema"] == Explanation.model_json_schema()

@@ -25,6 +25,33 @@ class _FakeClient:
         self.chat = _FakeChat(exc)
 
 
+class _RecordingCompletions:
+    def __init__(self, calls):
+        self._calls = calls
+
+    def create(self, **kwargs):
+        self._calls.append(kwargs)
+
+        class _Choice:
+            class message:
+                content = '{"ok": true}'
+
+        class _Response:
+            choices = [_Choice]
+
+        return _Response()
+
+
+class _RecordingChat:
+    def __init__(self, calls):
+        self.completions = _RecordingCompletions(calls)
+
+
+class _RecordingClient:
+    def __init__(self, calls):
+        self.chat = _RecordingChat(calls)
+
+
 def _configure(monkeypatch, *, model="groq-test-model", fallback=""):
     monkeypatch.setattr(settings, "groq_model", model)
     monkeypatch.setattr(settings, "groq_fallback_models", fallback)
@@ -92,6 +119,88 @@ def test_call_groq_once_raises_when_key_missing(monkeypatch):
         groq_client.call_groq_once("hello", model="groq-test-model")
 
 
+# --- strict JSON schema mode -------------------------------------------------
+
+
+def test_strictify_schema_marks_all_properties_required_and_closes_object():
+    schema = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "integer"}}}
+
+    result = groq_client._strictify_schema(schema)
+
+    assert result["required"] == ["a", "b"]
+    assert result["additionalProperties"] is False
+
+
+def test_strictify_schema_recurses_into_defs_and_nested_objects():
+    schema = {
+        "type": "object",
+        "properties": {"items": {"type": "array", "items": {"$ref": "#/$defs/Item"}}},
+        "$defs": {
+            "Item": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+            }
+        },
+    }
+
+    result = groq_client._strictify_schema(schema)
+
+    assert result["$defs"]["Item"]["required"] == ["name", "count"]
+    assert result["$defs"]["Item"]["additionalProperties"] is False
+
+
+def test_strictify_schema_does_not_mutate_input():
+    schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+
+    groq_client._strictify_schema(schema)
+
+    assert "required" not in schema
+
+
+def test_response_format_uses_json_schema_for_strict_capable_model():
+    result = groq_client._response_format(
+        "openai/gpt-oss-120b", schema_name="Thing", schema={"type": "object", "properties": {"a": {"type": "string"}}}
+    )
+
+    assert result["type"] == "json_schema"
+    assert result["json_schema"]["name"] == "Thing"
+    assert result["json_schema"]["strict"] is True
+    assert result["json_schema"]["schema"]["additionalProperties"] is False
+
+
+def test_response_format_falls_back_to_json_object_for_other_models():
+    result = groq_client._response_format(
+        "llama-3.3-70b-versatile", schema_name="Thing", schema={"type": "object", "properties": {}}
+    )
+
+    assert result == {"type": "json_object"}
+
+
+def test_call_groq_once_sends_json_schema_format_when_schema_given(monkeypatch):
+    _configure(monkeypatch)
+    calls = []
+    monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _RecordingClient(calls))
+
+    groq_client.call_groq_once(
+        "hello",
+        model="openai/gpt-oss-120b",
+        schema_name="Thing",
+        schema={"type": "object", "properties": {"a": {"type": "string"}}},
+    )
+
+    assert calls[0]["response_format"]["type"] == "json_schema"
+
+
+def test_call_groq_once_sends_json_object_format_when_no_schema_given(monkeypatch):
+    _configure(monkeypatch)
+    calls = []
+    monkeypatch.setattr(groq_client.groq, "Groq", lambda **kwargs: _RecordingClient(calls))
+
+    groq_client.call_groq_once("hello", model="openai/gpt-oss-120b")
+
+    assert calls[0]["response_format"] == {"type": "json_object"}
+
+
 # --- model chain -------------------------------------------------------------
 
 
@@ -125,7 +234,7 @@ def test_call_groq_raises_not_configured_when_no_model_at_all(monkeypatch):
 
 def test_call_groq_returns_result_on_first_success(monkeypatch):
     _configure(monkeypatch)
-    monkeypatch.setattr(groq_client, "call_groq_once", lambda prompt, *, model: "ok response")
+    monkeypatch.setattr(groq_client, "call_groq_once", lambda prompt, *, model, **kwargs: "ok response")
 
     assert groq_client.call_groq("prompt") == "ok response"
 
@@ -134,7 +243,7 @@ def test_call_groq_retries_on_rate_limit_then_succeeds(monkeypatch):
     _configure(monkeypatch)
     calls = {"count": 0}
 
-    def flaky(prompt, *, model):
+    def flaky(prompt, *, model, **kwargs):
         calls["count"] += 1
         if calls["count"] < 2:
             raise GroqRateLimitError("rate limited")
@@ -153,7 +262,7 @@ def test_call_groq_gives_up_after_max_retries(monkeypatch):
     _configure(monkeypatch)
     monkeypatch.setattr(settings, "groq_max_retries", 2)
 
-    def always_timeout(prompt, *, model):
+    def always_timeout(prompt, *, model, **kwargs):
         raise GroqTimeoutError("timed out")
 
     monkeypatch.setattr(groq_client, "call_groq_once", always_timeout)
@@ -173,7 +282,7 @@ def test_call_groq_uses_flat_rate_limit_backoff_not_exponential(monkeypatch):
     sleep_calls = []
     monkeypatch.setattr(groq_client.time, "sleep", lambda seconds: sleep_calls.append(seconds))
 
-    def always_rate_limited(prompt, *, model):
+    def always_rate_limited(prompt, *, model, **kwargs):
         raise GroqRateLimitError("rate limited")
 
     monkeypatch.setattr(groq_client, "call_groq_once", always_rate_limited)
@@ -187,7 +296,7 @@ def test_call_groq_uses_flat_rate_limit_backoff_not_exponential(monkeypatch):
 def test_call_groq_does_not_retry_non_transient_errors(monkeypatch):
     _configure(monkeypatch)
 
-    def broken(prompt, *, model):
+    def broken(prompt, *, model, **kwargs):
         raise ValueError("something else entirely")
 
     monkeypatch.setattr(groq_client, "call_groq_once", broken)
@@ -206,7 +315,7 @@ def test_call_groq_falls_back_to_next_model_when_primary_exhausted(monkeypatch):
 
     models_tried = []
 
-    def fake(prompt, *, model):
+    def fake(prompt, *, model, **kwargs):
         models_tried.append(model)
         if model == "primary":
             raise GroqRateLimitError("rate limited")
@@ -226,7 +335,7 @@ def test_call_groq_raises_last_error_when_every_model_in_chain_fails(monkeypatch
     monkeypatch.setattr(settings, "groq_max_retries", 1)
     monkeypatch.setattr(groq_client.time, "sleep", lambda seconds: None)
 
-    def always_rate_limited(prompt, *, model):
+    def always_rate_limited(prompt, *, model, **kwargs):
         raise GroqRateLimitError(f"rate limited on {model}")
 
     monkeypatch.setattr(groq_client, "call_groq_once", always_rate_limited)
@@ -242,7 +351,7 @@ def test_call_groq_does_not_fall_back_when_no_fallback_models_configured(monkeyp
 
     models_tried = []
 
-    def always_rate_limited(prompt, *, model):
+    def always_rate_limited(prompt, *, model, **kwargs):
         models_tried.append(model)
         raise GroqRateLimitError("rate limited")
 

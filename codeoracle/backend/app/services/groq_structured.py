@@ -36,13 +36,22 @@ def _try_parse(raw: str, response_model: type[T]) -> tuple[T | None, str | None]
 def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None, str | None]:
     """Call Groq and parse+validate the response as `response_model`.
 
+    Passes response_model's JSON schema through to call_groq so models that
+    support it (see groq_client._STRICT_SCHEMA_MODELS) get server-side
+    schema enforcement instead of just best-effort "return JSON" - this is
+    what actually prevents "valid JSON, wrong shape" failures for those
+    models, rather than just catching them after the fact.
+
     Never raises for AI-side failures (missing config, rate limit, timeout,
     invalid JSON) - always returns (None, warning) instead, so a flaky or
     misconfigured Groq call degrades one optional step rather than taking
     down the whole job.
     """
+    schema_name = response_model.__name__
+    schema = response_model.model_json_schema()
+
     try:
-        raw = call_groq(prompt)
+        raw = call_groq(prompt, schema_name=schema_name, schema=schema)
     except CodeOracleError as exc:
         return None, f"Groq call failed: {exc.message}"
 
@@ -57,7 +66,7 @@ def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None,
         "markdown formatting, no extra text before or after the JSON."
     )
     try:
-        raw_retry = call_groq(repair_prompt)
+        raw_retry = call_groq(repair_prompt, schema_name=schema_name, schema=schema)
     except CodeOracleError as exc:
         return None, f"Groq call failed: {exc.message}"
 

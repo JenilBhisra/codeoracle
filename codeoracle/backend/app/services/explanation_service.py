@@ -28,8 +28,8 @@ CHUNK_TASK = (
     "function/method listed in that file's facts (top-level `functions` and "
     "each class's `methods`), return one entry in `functions` (matched by "
     "`name`) with: a clear `explanation` of what it does, a "
-    "`parameter_descriptions` object mapping each parameter name to a short "
-    "description, a `returns` description, any `side_effects` (empty list if "
+    "`parameter_descriptions` list with one {name, description} entry per "
+    "parameter, a `returns` description, any `side_effects` (empty list if "
     "none), a `risk` level, and a `confidence` level reflecting how certain "
     "you are given only the facts shown."
 )
@@ -97,7 +97,7 @@ def _build_signature(func: FunctionInfo) -> str:
 
 
 def _merge_function(static: FunctionInfo, narrative: FunctionNarrative | None) -> FunctionExplanation:
-    descriptions = narrative.parameter_descriptions if narrative else {}
+    descriptions = {pd.name: pd.description for pd in narrative.parameter_descriptions} if narrative else {}
     parameters = [
         FunctionParameter(name=p.name, type=p.annotation, description=descriptions.get(p.name, ""))
         for p in static.parameters
