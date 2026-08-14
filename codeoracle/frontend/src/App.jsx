@@ -17,12 +17,14 @@ import {
   FileCode2,
   Sliders,
   Activity,
+  Keyboard,
 } from 'lucide-react';
 import AppShell from './components/layout/AppShell';
 import UploadForm from './components/input/UploadForm';
 import ProcessingView from './components/processing/ProcessingView';
 import ResultsDashboard from './components/results/ResultsDashboard';
 import ApiDiagnosticsModal from './components/common/ApiDiagnosticsModal';
+import KeyboardShortcutsModal from './components/common/KeyboardShortcutsModal';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/common/Card';
 import Badge from './components/common/Badge';
 import Button from './components/common/Button';
@@ -42,6 +44,7 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorState, setErrorState] = useState(null);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
   // Health check polling every 10s
   const verifyBackend = async () => {
@@ -65,6 +68,30 @@ function App() {
     const interval = setInterval(verifyBackend, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Global Keyboard Shortcuts (Shift + ? -> shortcuts, d -> diagnostics, Escape -> close)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      // Don't intercept when user is typing in inputs
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        setIsShortcutsOpen((prev) => !prev);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        setIsDiagnosticsOpen((prev) => !prev);
+      } else if (e.key === 'Escape') {
+        setIsShortcutsOpen(false);
+        setIsDiagnosticsOpen(false);
+      } else if ((e.key === 'n' || e.key === 'N') && appState === APP_STATES.RESULTS) {
+        handleReset();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [appState]);
 
   // Handle ZIP Submission
   const handleZipSubmit = async (file) => {
@@ -154,6 +181,7 @@ function App() {
       backendHealth={backendHealth}
       onRefreshHealth={verifyBackend}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
+      onOpenShortcuts={() => setIsShortcutsOpen(true)}
       onReset={handleReset}
       showReset={appState !== APP_STATES.LANDING}
     >
@@ -163,6 +191,12 @@ function App() {
         onClose={() => setIsDiagnosticsOpen(false)}
         backendHealth={backendHealth}
         onRefreshHealth={verifyBackend}
+      />
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
       />
 
       {/* Global Error Banner Display */}

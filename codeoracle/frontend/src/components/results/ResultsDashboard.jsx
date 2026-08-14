@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Cpu,
   Layers,
@@ -25,7 +25,7 @@ import { RESULTS_TABS } from '../../utils/constants';
 import { getDownloadUrl } from '../../services/api';
 
 /**
- * Main Results Dashboard Component with Markdown Report Generator
+ * Main Results Dashboard Component with Keyboard Tab Navigation (1-4)
  * @param {Object} props
  * @param {Object} props.results - Backend result payload from /api/jobs/{job_id}/results
  * @param {string} props.jobId
@@ -48,6 +48,22 @@ export default function ResultsDashboard({
 
   // Construct download URL
   const downloadUrl = jobId ? getDownloadUrl(jobId) : '#';
+
+  // Global Tab Switching Shortcuts (1, 2, 3, 4)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't intercept when user is typing in an input or textarea
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+
+      if (e.key === '1') setActiveTab(RESULTS_TABS.EXPLANATION);
+      if (e.key === '2') setActiveTab(RESULTS_TABS.GRAPH);
+      if (e.key === '3') setActiveTab(RESULTS_TABS.TESTS);
+      if (e.key === '4') setActiveTab(RESULTS_TABS.REFACTOR);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Export Full Markdown Report
   const handleExportMarkdownReport = () => {
@@ -119,25 +135,25 @@ ${refactoredFiles.map((rf) => `
   const tabList = [
     {
       id: RESULTS_TABS.EXPLANATION,
-      label: 'Explanation',
+      label: 'Explanation (1)',
       icon: <Cpu className="w-4 h-4" />,
       count: explanation.modules ? explanation.modules.length : undefined,
     },
     {
       id: RESULTS_TABS.GRAPH,
-      label: 'Dependency Graph',
+      label: 'Dependency Graph (2)',
       icon: <Layers className="w-4 h-4" />,
       count: dependencyGraph.nodes ? dependencyGraph.nodes.length : undefined,
     },
     {
       id: RESULTS_TABS.TESTS,
-      label: 'Generated Tests',
+      label: 'Generated Tests (3)',
       icon: <ShieldCheck className="w-4 h-4" />,
       count: generatedTests.length,
     },
     {
       id: RESULTS_TABS.REFACTOR,
-      label: 'Refactored Code',
+      label: 'Refactored Code (4)',
       icon: <Code2 className="w-4 h-4" />,
       count: refactoredFiles.length,
     },
@@ -234,22 +250,22 @@ ${refactoredFiles.map((rf) => `
 
       {/* 5. Tab Content Views */}
       <div className="rounded-3xl bg-[#121424]/75 border border-white/[0.08] backdrop-blur-2xl p-6 sm:p-8 shadow-2xl shadow-black/40 min-h-[450px]">
-        {/* Tab 1: Explanation (Phase 6) */}
+        {/* Tab 1: Explanation */}
         {activeTab === RESULTS_TABS.EXPLANATION && (
           <ExplanationView explanation={explanation} />
         )}
 
-        {/* Tab 2: Dependency Graph (Phase 7) */}
+        {/* Tab 2: Dependency Graph */}
         {activeTab === RESULTS_TABS.GRAPH && (
           <DependencyGraphView graphData={dependencyGraph} />
         )}
 
-        {/* Tab 3: Generated Tests (Phase 8) */}
+        {/* Tab 3: Generated Tests */}
         {activeTab === RESULTS_TABS.TESTS && (
           <GeneratedTestsView tests={generatedTests} />
         )}
 
-        {/* Tab 4: Refactored Code (Phase 8) */}
+        {/* Tab 4: Refactored Code */}
         {activeTab === RESULTS_TABS.REFACTOR && (
           <RefactoredCodeView refactoredFiles={refactoredFiles} />
         )}

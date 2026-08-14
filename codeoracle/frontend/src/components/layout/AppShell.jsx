@@ -9,6 +9,7 @@ import Footer from './Footer';
  * @param {{ status: string, message: string }} props.backendHealth
  * @param {Function} [props.onRefreshHealth]
  * @param {Function} [props.onOpenDiagnostics]
+ * @param {Function} [props.onOpenShortcuts]
  * @param {Function} [props.onReset]
  * @param {boolean} [props.showReset=false]
  */
@@ -17,6 +18,7 @@ export default function AppShell({
   backendHealth,
   onRefreshHealth,
   onOpenDiagnostics,
+  onOpenShortcuts,
   onReset,
   showReset = false,
 }) {
@@ -42,7 +44,7 @@ export default function AppShell({
       </main>
 
       {/* App Footer */}
-      <Footer />
+      <Footer onOpenShortcuts={onOpenShortcuts} />
     </div>
   );
 }
