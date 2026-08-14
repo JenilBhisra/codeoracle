@@ -1,135 +1,149 @@
 /**
- * CodeOracle API Service
- * Handles all network requests to the CodeOracle backend API.
- * Uses VITE_API_BASE_URL from environment variables.
+ * Single place where the frontend talks to the FastAPI backend.
+ * When VITE_USE_MOCK_DATA is "true" every call is served by mockApi.js instead.
  */
+import * as mockApi from "./mockApi";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(
+  /\/$/,
+  "",
+);
 
-/**
- * Custom API Error with status, code, and url metadata
- */
+export const USE_MOCK_DATA = String(import.meta.env.VITE_USE_MOCK_DATA ?? "true") === "true";
+
+/** Frontend-side upload limit (bytes). */
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const MAX_LINES = 10000;
+
+/** Consistent error shape used by every UI surface. */
 export class ApiError extends Error {
-  constructor(message, status = null, code = null, url = null) {
+  constructor({ message, status = 0, code = "unknown_error", details = null }) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
     this.status = status;
     this.code = code;
-    this.url = url;
+    this.details = details;
   }
 }
 
-/**
- * Generic fetch wrapper with timeout, CORS handling, and structured errors
- */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+function normalizeError(error, status = 0) {
+  if (error instanceof ApiError) return error;
+  if (status === 404) {
+    return new ApiError({ message: "Job not found on the backend.", status, code: "not_found" });
+  }
+  return new ApiError({
+    message:
+      error?.message === "Failed to fetch"
+        ? `Cannot reach the backend at ${API_BASE_URL}. Is it running?`
+        : error?.message || "Unexpected error",
+    status,
+    code: status ? `http_${status}` : "network_error",
+  });
+}
+
+async function parseBody(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text };
+  }
+}
+
+async function request(path, { method = "GET", body, headers, signal, timeoutMs = 30000 } = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (signal) signal.addEventListener("abort", () => controller.abort(), { once: true });
 
   try {
-    const response = await fetch(url, {
-      ...options,
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      body,
+      headers,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
-
-    const contentType = response.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
-    const data = isJson ? await response.json() : await response.text();
+    const payload = await parseBody(response);
 
     if (!response.ok) {
-      const errorMessage =
-        (typeof data === 'object' && (data.detail || data.message || data.error)) ||
-        `Request failed with status ${response.status} (${response.statusText})`;
-      throw new ApiError(errorMessage, response.status, 'HTTP_ERROR', url);
+      const detail = payload?.detail ?? payload?.message;
+      throw new ApiError({
+        message:
+          typeof detail === "string"
+            ? detail
+            : `Request failed with status ${response.status}`,
+        status: response.status,
+        code: `http_${response.status}`,
+        details: payload,
+      });
     }
-
-    return data;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new ApiError(
-        'Request timed out. The backend server might be waking up or processing a heavy codebase.',
-        408,
-        'TIMEOUT',
-        url
-      );
+    return payload;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new ApiError({ message: "The request timed out.", code: "timeout" });
     }
-    if (err instanceof ApiError) {
-      throw err;
-    }
-    // Network, CORS, or Server Unreachable
-    throw new ApiError(
-      'Unable to connect to the backend server. Please verify the API server is running at ' + API_BASE_URL,
-      null,
-      'NETWORK_ERROR',
-      url
-    );
+    throw normalizeError(error, error?.status ?? 0);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-/**
- * 1. Health Check
- * GET /api/health
- */
-export async function checkApiHealth() {
-  return fetchWithTimeout(`${API_BASE_URL}/api/health`, { method: 'GET' }, 8000);
+export function validateZipFile(file) {
+  if (!file) return "Select a .zip archive to continue.";
+  if (!/\.zip$/i.test(file.name)) return "Only .zip archives are supported.";
+  if (file.size > MAX_UPLOAD_BYTES)
+    return `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`;
+  return null;
 }
 
-/**
- * 2. Upload ZIP Analysis
- * POST /api/analyze/upload (multipart/form-data)
- */
-export async function analyzeZipUpload(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  return fetchWithTimeout(`${API_BASE_URL}/api/analyze/upload`, {
-    method: 'POST',
-    body: formData,
-  }, 45000); // 45s timeout for large uploads
+export function validateGithubUrl(value) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "Enter a public GitHub repository URL.";
+  const match = /^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+(\/)?$/i.test(trimmed);
+  if (!match) return "Use the form https://github.com/username/repository";
+  return null;
 }
 
-/**
- * 3. GitHub Repository Analysis
- * POST /api/analyze/github
- */
-export async function analyzeGithubRepo(repoUrl) {
-  return fetchWithTimeout(`${API_BASE_URL}/api/analyze/github`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ repo_url: repoUrl.trim() }),
-  }, 45000);
+export async function checkHealth() {
+  if (USE_MOCK_DATA) return mockApi.checkHealth();
+  return request("/api/health", { timeoutMs: 8000 });
 }
 
-/**
- * 4. Job Status Polling
- * GET /api/jobs/{job_id}
- */
+export async function analyzeUpload(file) {
+  if (USE_MOCK_DATA) return mockApi.analyzeUpload(file);
+  const form = new FormData();
+  form.append("file", file);
+  return request("/api/analyze/upload", { method: "POST", body: form, timeoutMs: 120000 });
+}
+
+export async function analyzeGitHub(repoUrl) {
+  if (USE_MOCK_DATA) return mockApi.analyzeGitHub(repoUrl);
+  return request("/api/analyze/github", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_url: repoUrl }),
+  });
+}
+
 export async function getJobStatus(jobId) {
-  return fetchWithTimeout(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}`, {
-    method: 'GET',
-  }, 10000);
+  if (USE_MOCK_DATA) return mockApi.getJobStatus(jobId);
+  return request(`/api/jobs/${encodeURIComponent(jobId)}`, { timeoutMs: 15000 });
 }
 
-/**
- * 5. Job Results
- * GET /api/jobs/{job_id}/results
- */
 export async function getJobResults(jobId) {
-  return fetchWithTimeout(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/results`, {
-    method: 'GET',
-  }, 25000);
+  if (USE_MOCK_DATA) return mockApi.getJobResults(jobId);
+  return request(`/api/jobs/${encodeURIComponent(jobId)}/results`, { timeoutMs: 60000 });
 }
 
-/**
- * 6. Download Results Artifacts URL
- * GET /api/jobs/{job_id}/download
- */
-export function getDownloadUrl(jobId) {
-  return `${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/download`;
+export async function downloadJobResults(jobId) {
+  if (USE_MOCK_DATA) return mockApi.downloadJobResults(jobId);
+  const response = await fetch(`${API_BASE_URL}/api/jobs/${encodeURIComponent(jobId)}/download`);
+  if (!response.ok) {
+    throw new ApiError({
+      message: `Could not download the report (status ${response.status}).`,
+      status: response.status,
+      code: `http_${response.status}`,
+    });
+  }
+  return response.blob();
 }
-
-export { API_BASE_URL };

@@ -1,273 +1,103 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Sparkles,
-  AlertCircle,
-  RotateCcw,
-  WifiOff,
-  CheckCircle2,
-  FolderGit2,
-  FileArchive,
-  ArrowRight,
-  ShieldAlert,
-} from 'lucide-react';
-import ProgressStepper from './ProgressStepper';
-import Button from '../common/Button';
-import Badge from '../common/Badge';
-import { getJobStatus, getJobResults, ApiError } from '../../services/api';
+import { AlertTriangle, Clock, FileArchive, Github, RotateCcw } from "lucide-react";
+import { CodeOrbit } from "./CodeOrbit";
+import { ProgressStepper } from "./ProgressStepper";
+import { Button } from "../common/Button";
+import { Badge } from "../common/Badges";
+import { PROCESSING_STEPS, stepIndexForStatus } from "../../hooks/processingSteps";
+import { cn } from "../../lib/cn";
 
-/**
- * Processing View Component for active job polling and status tracking
- * @param {Object} props
- * @param {{ jobId: string, sourceName: string, sourceType: 'zip' | 'github', status: string, progress: number, message: string }} props.job
- * @param {Function} props.onComplete - callback receiving final results object
- * @param {Function} props.onCancel - callback to return to landing
- */
-export default function ProcessingView({
-  job,
-  onComplete,
-  onCancel,
-}) {
-  const [jobState, setJobState] = useState({
-    status: job.status || 'queued',
-    progress: job.progress || 5,
-    message: job.message || 'Analysis queued...',
-    error: null,
-  });
+function formatElapsed(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
 
-  const [networkRetries, setNetworkRetries] = useState(0);
-  const [isRetryingManually, setIsRetryingManually] = useState(false);
-  const pollingTimerRef = useRef(null);
-  const isMountedRef = useRef(true);
-
-  // Poll Job Status
-  const pollStatus = async () => {
-    if (!job?.jobId || !isMountedRef.current) return;
-
-    try {
-      const data = await getJobStatus(job.jobId);
-      if (!isMountedRef.current) return;
-
-      // Reset network retry counter on successful ping
-      setNetworkRetries(0);
-
-      const status = data.status || 'queued';
-      const progress = typeof data.progress === 'number' ? data.progress : jobState.progress;
-      const message = data.message || 'Processing codebase...';
-      const error = data.error || null;
-
-      setJobState({
-        status,
-        progress: Math.max(5, Math.min(100, progress)),
-        message,
-        error,
-      });
-
-      // 1. If Job Completed -> Fetch full results
-      if (status === 'completed') {
-        try {
-          const resultsData = await getJobResults(job.jobId);
-          if (isMountedRef.current) {
-            onComplete(resultsData);
-          }
-        } catch (fetchErr) {
-          if (isMountedRef.current) {
-            setJobState((prev) => ({
-              ...prev,
-              status: 'failed',
-              error: 'Analysis completed on server, but failed to download results: ' + fetchErr.message,
-            }));
-          }
-        }
-        return; // Stop polling
-      }
-
-      // 2. If Job Failed -> Stop polling
-      if (status === 'failed') {
-        return; // Stop polling
-      }
-
-      // 3. Continue polling after 2 seconds
-      pollingTimerRef.current = setTimeout(pollStatus, 2000);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-
-      // Handle transient network errors gracefully
-      setNetworkRetries((prev) => {
-        const next = prev + 1;
-        // If under 6 consecutive failures (approx 15 seconds), keep trying quietly
-        if (next < 6) {
-          pollingTimerRef.current = setTimeout(pollStatus, 3000);
-        }
-        return next;
-      });
-    }
-  };
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    pollStatus();
-
-    return () => {
-      isMountedRef.current = false;
-      if (pollingTimerRef.current) {
-        clearTimeout(pollingTimerRef.current);
-      }
-    };
-  }, [job.jobId]);
-
-  const handleManualRetry = () => {
-    setIsRetryingManually(true);
-    setNetworkRetries(0);
-    pollStatus().finally(() => setIsRetryingManually(false));
-  };
-
-  const isFailed = jobState.status === 'failed';
-  const isNetworkIssue = networkRetries >= 5;
+export function ProcessingView({ job, source, elapsedSeconds, transientError, onCancel, onRetry }) {
+  const status = job?.status || "queued";
+  const failed = status === "failed";
+  const activeIndex = stepIndexForStatus(status);
+  const progress = Math.max(0, Math.min(100, Number(job?.progress ?? 0)));
 
   return (
-    <div className="max-w-4xl mx-auto w-full space-y-6 animate-in fade-in duration-300">
-      {/* Network Disconnect Warning (if transient failures exceed threshold) */}
-      {isNetworkIssue && !isFailed && (
-        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-4 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <WifiOff className="w-5 h-5 text-amber-400 shrink-0" />
-            <div>
-              <p className="font-semibold">Temporary Network Interruption</p>
-              <p className="text-slate-300 text-[11px]">
-                Waiting to reconnect with the backend server. Analysis is still running in background.
-              </p>
+    <section className="mx-auto max-w-4xl pt-10" aria-labelledby="processing-heading">
+      <div className="glass-panel rounded-2xl p-5 sm:p-8">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
+          <CodeOrbit />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={source?.kind === "github" ? "purple" : "cyan"} icon={source?.kind === "github" ? Github : FileArchive}>
+                {source?.kind === "github" ? "GitHub repository" : "ZIP upload"}
+              </Badge>
+              <Badge tone={failed ? "danger" : "blue"}>{status.replace(/_/g, " ")}</Badge>
             </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleManualRetry}
-            loading={isRetryingManually}
-          >
-            Reconnect Now
-          </Button>
-        </div>
-      )}
-
-      {/* Main Processing Status Card */}
-      <div className="rounded-3xl bg-[#121424]/85 border border-white/[0.08] backdrop-blur-2xl p-6 sm:p-10 shadow-2xl shadow-black/40 space-y-8 relative overflow-hidden">
-        {/* Glow ambient background */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-br from-purple-500/10 via-cyan-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
-
-        {/* Header with Source & Job metadata */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-6">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 border border-purple-500/30 flex items-center justify-center text-cyan-300 shrink-0">
-              {job.sourceType === 'github' ? (
-                <FolderGit2 className="w-6 h-6" />
-              ) : (
-                <FileArchive className="w-6 h-6" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <span className="text-xs font-mono text-purple-300 uppercase tracking-wider block">
-                {job.sourceType === 'github' ? 'GitHub Repository Analysis' : 'ZIP Archive Analysis'}
+            <h1 id="processing-heading" className="mt-3 truncate text-xl font-semibold sm:text-2xl">
+              {source?.label || "Analyzing your codebase"}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {job?.message || "Waiting for the backend to pick up this job."}
+            </p>
+            <p className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Clock size={13} aria-hidden="true" />
+                <span className="font-mono tabular-nums">{formatElapsed(elapsedSeconds)}</span> elapsed
               </span>
-              <h2 className="text-lg sm:text-xl font-bold text-slate-100 truncate font-mono">
-                {job.sourceName}
-              </h2>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge variant="purple" size="sm">
-              Job ID: {job.jobId ? `${job.jobId.slice(0, 8)}...` : 'Pending'}
-            </Badge>
-            <Badge
-              variant={
-                isFailed
-                  ? 'rose'
-                  : jobState.status === 'completed'
-                  ? 'emerald'
-                  : 'cyan'
-              }
-              size="sm"
-              dot
-            >
-              {jobState.status.toUpperCase()}
-            </Badge>
+              <span className="font-mono tabular-nums">{progress}%</span>
+            </p>
           </div>
         </div>
 
-        {/* Dynamic Progress Bar */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs sm:text-sm">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-200">{jobState.message}</span>
-            </div>
-            <span className="font-mono font-bold text-cyan-300 text-base">
-              {Math.round(jobState.progress)}%
-            </span>
-          </div>
-
-          {/* Glowing Track & Bar */}
-          <div className="w-full h-3.5 rounded-full bg-[#0a0b12] border border-white/10 p-0.5 relative overflow-hidden">
+        <div className="mt-6">
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-surface-2"
+            role="progressbar"
+            aria-valuenow={progress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Analysis progress"
+          >
             <div
-              className={`h-full rounded-full transition-all duration-500 relative ${
-                isFailed
-                  ? 'bg-rose-500'
-                  : 'bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-400'
-              }`}
-              style={{ width: `${jobState.progress}%` }}
-            >
-              {/* Shimmer light effect over active bar */}
-              {!isFailed && (
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse" />
+              className={cn(
+                "h-full rounded-full transition-[width] duration-700 ease-out",
+                failed ? "bg-danger" : "bg-gradient-brand",
               )}
-            </div>
+              style={{ width: `${progress}%` }}
+            />
           </div>
         </div>
 
-        {/* Failure Message & Recovery */}
-        {isFailed && (
-          <div className="p-5 rounded-2xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs sm:text-sm space-y-3">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-rose-300 mb-1">Analysis Failed</h4>
-                <p className="text-slate-300 leading-relaxed text-xs">
-                  {jobState.error || 'The backend was unable to complete the analysis for this codebase.'}
-                </p>
-              </div>
-            </div>
-            <div className="pt-2 flex items-center gap-3">
-              <Button
-                variant="danger"
-                size="sm"
-                icon={<RotateCcw className="w-3.5 h-3.5" />}
-                onClick={handleManualRetry}
-              >
-                Retry Analysis
-              </Button>
-              <Button variant="ghost" size="sm" onClick={onCancel}>
-                Return to Home
-              </Button>
-            </div>
+        <div className="mt-6">
+          <ProgressStepper steps={PROCESSING_STEPS} activeIndex={activeIndex} failed={failed} />
+        </div>
+
+        {transientError && !failed ? (
+          <p className="mt-5 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2.5 text-xs text-warning">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+            {transientError} Retrying automatically — the backend may still be starting up.
+          </p>
+        ) : null}
+
+        {failed ? (
+          <div className="mt-5 rounded-lg border border-danger/45 bg-danger/8 p-4">
+            <p className="text-sm font-semibold text-foreground">Analysis failed</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {job?.error || job?.message || "The backend reported a failure without a message."}
+            </p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+              <RotateCcw size={14} aria-hidden="true" />
+              Start a new analysis
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-border pt-5 sm:flex-row">
+            <p className="text-xs text-muted-foreground">
+              You can keep this tab open — progress is restored if you refresh.
+            </p>
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Cancel and start over
+            </Button>
           </div>
         )}
-
-        {/* Phase Stepper Grid */}
-        <div className="pt-2">
-          <div className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-4 flex items-center justify-between">
-            <span>AI Pipeline Phases</span>
-            <span className="text-slate-500">6 Stages</span>
-          </div>
-          <ProgressStepper currentPhase={jobState.status} isFailed={isFailed} />
-        </div>
-
-        {/* Footer Actions */}
-        <div className="pt-6 border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-400">
-          <span>Polling status every 2 seconds</span>
-          <Button variant="ghost" size="sm" onClick={onCancel}>
-            Cancel Analysis
-          </Button>
-        </div>
       </div>
-    </div>
+    </section>
   );
 }

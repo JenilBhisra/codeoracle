@@ -1,56 +1,82 @@
-import React from 'react';
+import { useRef } from "react";
+import { cn } from "../../lib/cn";
 
-/**
- * Reusable Tabs Navigation Component
- * @param {Object} props
- * @param {Array<{ id: string, label: string, icon?: React.ReactNode, count?: number | string, badgeVariant?: string }>} props.tabs
- * @param {string} props.activeTab
- * @param {Function} props.onChange
- * @param {'pills' | 'underline'} [props.variant='pills']
- * @param {string} [props.className='']
- */
-export default function Tabs({
-  tabs = [],
-  activeTab,
-  onChange,
-  variant = 'pills',
-  className = '',
-}) {
+/** Accessible, keyboard-navigable tab bar (roving tabindex). */
+export function TabBar({ tabs, value, onChange, className }) {
+  const refs = useRef({});
+
+  function handleKeyDown(event) {
+    const index = tabs.findIndex((tab) => tab.id === value);
+    let next = null;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    const nextTab = tabs[next];
+    onChange(nextTab.id);
+    refs.current[nextTab.id]?.focus();
+  }
+
   return (
     <div
       role="tablist"
-      className={`flex items-center gap-2 p-1.5 rounded-2xl bg-[#0f111e]/90 border border-white/[0.08] backdrop-blur-md overflow-x-auto no-scrollbar ${className}`}
+      aria-label="Analysis results"
+      onKeyDown={handleKeyDown}
+      className={cn(
+        "flex gap-2 overflow-x-auto scrollbar-thin-custom rounded-xl border border-border bg-surface/70 p-1.5",
+        className,
+      )}
     >
       {tabs.map((tab) => {
-        const isActive = activeTab === tab.id;
+        const active = tab.id === value;
+        const Icon = tab.icon;
         return (
           <button
             key={tab.id}
+            ref={(node) => {
+              refs.current[tab.id] = node;
+            }}
             role="tab"
-            aria-selected={isActive}
+            id={`tab-${tab.id}`}
+            aria-selected={active}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-purple-500/40 ${
-              isActive
-                ? 'bg-gradient-to-r from-purple-600/90 to-indigo-600/90 text-white shadow-md shadow-purple-600/20 border border-purple-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-            }`}
+            className={cn(
+              "flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-all",
+              active
+                ? "bg-surface-2 text-foreground glow-ring"
+                : "text-muted-foreground hover:bg-surface-2/70 hover:text-foreground",
+            )}
           >
-            {tab.icon && <span className={`shrink-0 ${isActive ? 'text-cyan-300' : 'text-slate-400'}`}>{tab.icon}</span>}
-            <span>{tab.label}</span>
-            {tab.count !== undefined && (
+            {Icon ? (
+              <Icon size={16} className={active ? tab.activeColor : undefined} aria-hidden="true" />
+            ) : null}
+            <span className="whitespace-nowrap">{tab.label}</span>
+            {tab.count !== undefined && tab.count !== null ? (
               <span
-                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                  isActive
-                    ? 'bg-white/20 text-white'
-                    : 'bg-white/[0.06] text-slate-400'
-                }`}
+                className={cn(
+                  "rounded-md px-1.5 py-0.5 font-mono text-[0.68rem]",
+                  active ? "bg-background/60 text-foreground" : "bg-surface-2 text-muted-foreground",
+                )}
               >
                 {tab.count}
               </span>
-            )}
+            ) : null}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function TabPanel({ id, active, children }) {
+  if (!active) return null;
+  return (
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className="outline-none">
+      {children}
     </div>
   );
 }
