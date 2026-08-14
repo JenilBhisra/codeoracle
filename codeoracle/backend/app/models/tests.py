@@ -7,7 +7,7 @@ CoverageLabel = Literal["measured", "estimated", "not_executed"]
 
 
 class GeneratedTestFileResponse(BaseModel):
-    """Shape Groq must return for one file's test suite within a batched chunk call."""
+    """Shape Gemini must return for one file's test suite within a batched chunk call."""
 
     target_file: str
     filename: str
@@ -18,7 +18,7 @@ class GeneratedTestFileResponse(BaseModel):
 
 
 class GeneratedTestChunkResponse(BaseModel):
-    """Shape Groq must return for one map-step call covering a chunk of files."""
+    """Shape Gemini must return for one map-step call covering a chunk of files."""
 
     files: list[GeneratedTestFileResponse] = Field(default_factory=list)
 

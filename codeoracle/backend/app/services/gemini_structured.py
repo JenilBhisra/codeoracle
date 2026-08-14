@@ -5,7 +5,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.core.exceptions import CodeOracleError
-from app.services.groq_client import call_groq
+from app.services.gemini_client import call_gemini
 
 logger = logging.getLogger(__name__)
 
@@ -34,26 +34,17 @@ def _try_parse(raw: str, response_model: type[T]) -> tuple[T | None, str | None]
 
 
 def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None, str | None]:
-    """Call Groq and parse+validate the response as `response_model`.
-
-    Passes response_model's JSON schema through to call_groq so models that
-    support it (see groq_client._STRICT_SCHEMA_MODELS) get server-side
-    schema enforcement instead of just best-effort "return JSON" - this is
-    what actually prevents "valid JSON, wrong shape" failures for those
-    models, rather than just catching them after the fact.
+    """Call Gemini and parse+validate the response as `response_model`.
 
     Never raises for AI-side failures (missing config, rate limit, timeout,
     invalid JSON) - always returns (None, warning) instead, so a flaky or
-    misconfigured Groq call degrades one optional step rather than taking
+    misconfigured Gemini call degrades one optional step rather than taking
     down the whole job.
     """
-    schema_name = response_model.__name__
-    schema = response_model.model_json_schema()
-
     try:
-        raw = call_groq(prompt, schema_name=schema_name, schema=schema)
+        raw = call_gemini(prompt)
     except CodeOracleError as exc:
-        return None, f"Groq call failed: {exc.message}"
+        return None, f"Gemini call failed: {exc.message}"
 
     parsed, error = _try_parse(raw, response_model)
     if parsed is not None:
@@ -66,14 +57,14 @@ def generate_structured(prompt: str, response_model: type[T]) -> tuple[T | None,
         "markdown formatting, no extra text before or after the JSON."
     )
     try:
-        raw_retry = call_groq(repair_prompt, schema_name=schema_name, schema=schema)
+        raw_retry = call_gemini(repair_prompt)
     except CodeOracleError as exc:
-        return None, f"Groq call failed: {exc.message}"
+        return None, f"Gemini call failed: {exc.message}"
 
     parsed, error = _try_parse(raw_retry, response_model)
     if parsed is not None:
         return parsed, None
 
-    warning = f"Groq returned invalid JSON that could not be repaired: {error}"
+    warning = f"Gemini returned invalid JSON that could not be repaired: {error}"
     logger.warning(warning)
     return None, warning
