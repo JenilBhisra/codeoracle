@@ -71,7 +71,11 @@ def test_run_job_pipeline_writes_results_matching_contract_shape(tmp_path, job_d
     assert results["summary"]["file_count"] == 2
     assert "nodes" in results["dependency_graph"]
     assert "edges" in results["dependency_graph"]
-    assert results["explanation"] == {}
+    # No GEMINI_API_KEY in the test environment, so explanation generation
+    # gracefully skips (Phase 7's documented behavior) rather than being
+    # entirely absent from the results shape.
+    assert results["explanation"]["modules"] == []
+    assert "not configured" in results["explanation"]["warnings"][0].lower()
     assert results["generated_tests"] == []
     assert results["refactored_files"] == []
 

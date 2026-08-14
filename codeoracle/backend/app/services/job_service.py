@@ -11,6 +11,7 @@ from app.core.config import GENERATED_DIR, UPLOADS_DIR, settings
 from app.core.exceptions import CodeOracleError
 from app.models.job import PROGRESS_BY_STATUS, JobRecord, JobStatus
 from app.services.analyzer_service import analyze_codebase
+from app.services.explanation_service import explain_project
 from app.services.github_service import download_github_repo_zip
 from app.services.graph_service import build_dependency_graph
 from app.services.upload_service import process_zip_source
@@ -106,15 +107,17 @@ def run_job_pipeline(
         codebase = analyze_codebase(ingest_result)
         graph = build_dependency_graph(codebase)
 
-        # Phases 6-9 (Gemini-backed explanation/test/refactor generation)
-        # aren't implemented yet; the state machine still passes through
-        # these stages so the job's progress reporting is already
-        # forward-compatible with the final pipeline.
         _update_job(job_id, status=JobStatus.EXPLAINING, message="Generating explanations")
+        explanation = explain_project(codebase, graph)
+
+        # Phases 8-9 (Gemini-backed test/refactor generation) aren't
+        # implemented yet; the state machine still passes through these
+        # stages so the job's progress reporting is already
+        # forward-compatible with the final pipeline.
         _update_job(job_id, status=JobStatus.GENERATING_TESTS, message="Generating tests")
         _update_job(job_id, status=JobStatus.REFACTORING, message="Generating refactor proposals")
 
-        warnings = codebase.warnings + graph.warnings
+        warnings = codebase.warnings + graph.warnings + explanation.warnings
         results = {
             "job_id": job_id,
             "status": JobStatus.COMPLETED.value,
@@ -126,7 +129,7 @@ def run_job_pipeline(
                 "module_count": len(codebase.files),
                 "dependency_count": len(graph.edges),
             },
-            "explanation": {},
+            "explanation": explanation.model_dump(),
             "dependency_graph": graph.model_dump(),
             "generated_tests": [],
             "refactored_files": [],
