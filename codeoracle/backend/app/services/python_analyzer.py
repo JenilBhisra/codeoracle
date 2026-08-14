@@ -63,6 +63,13 @@ def _extract_calls(node: ast.AST) -> list[str]:
     return sorted(calls)
 
 
+_BRANCH_NODE_TYPES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try)
+
+
+def _count_branches(node: ast.AST) -> int:
+    return sum(1 for child in ast.walk(node) if isinstance(child, _BRANCH_NODE_TYPES))
+
+
 def _build_function_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionInfo:
     return FunctionInfo(
         name=node.name,
@@ -72,6 +79,7 @@ def _build_function_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Functi
         decorators=_decorator_names(node.decorator_list),
         docstring=ast.get_docstring(node),
         calls=_extract_calls(node),
+        branch_count=_count_branches(node),
         line_start=node.lineno,
         line_end=getattr(node, "end_lineno", None),
     )

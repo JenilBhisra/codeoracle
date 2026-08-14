@@ -64,6 +64,22 @@ def _extract_params(source: str, params) -> list[ParameterInfo]:
     return [_param_info(source, p) for p in params]
 
 
+_BRANCH_NODE_TYPES = {
+    "IfStatement",
+    "ForStatement",
+    "ForInStatement",
+    "ForOfStatement",
+    "WhileStatement",
+    "DoWhileStatement",
+    "TryStatement",
+    "SwitchCase",
+}
+
+
+def _count_branches(node) -> int:
+    return sum(1 for child in _walk(node) if child.type in _BRANCH_NODE_TYPES)
+
+
 def _function_info_from_node(source: str, name: str, func_node) -> FunctionInfo:
     return FunctionInfo(
         name=name,
@@ -73,6 +89,7 @@ def _function_info_from_node(source: str, name: str, func_node) -> FunctionInfo:
         decorators=[],
         docstring=None,
         calls=_extract_calls(func_node.body),
+        branch_count=_count_branches(func_node.body),
         line_start=func_node.loc.start.line,
         line_end=func_node.loc.end.line,
     )

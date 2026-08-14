@@ -23,6 +23,7 @@ class FunctionInfo(BaseModel):
     decorators: list[str] = Field(default_factory=list)
     docstring: str | None = None
     calls: list[str] = Field(default_factory=list)
+    branch_count: int = 0
     line_start: int
     line_end: int | None = None
 
