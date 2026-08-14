@@ -37,10 +37,10 @@ htmlcov/
 !*.env.example
 
 # Uploads, extracted repositories, and generated results
-uploads/*
-!uploads/.gitkeep
-generated/*
-!generated/.gitkeep
+**/uploads/*
+!**/uploads/.gitkeep
+**/generated/*
+!**/generated/.gitkeep
 extracted_repos/
 
 # IDEs and editors

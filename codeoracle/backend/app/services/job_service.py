@@ -60,7 +60,7 @@ def _fail_job(job_id: str, error_message: str) -> None:
         record.updated_at = datetime.now(timezone.utc)
 
 
-def _job_upload_dir(job_id: str) -> Path:
+def job_upload_dir(job_id: str) -> Path:
     return UPLOADS_DIR / job_id
 
 
@@ -95,7 +95,7 @@ def run_job_pipeline(
     BackgroundTasks in Phase 10 - it takes no request/response objects and
     only talks to the module-level job store.
     """
-    job_dir = _job_upload_dir(job_id)
+    job_dir = job_upload_dir(job_id)
     zip_path = job_dir / "source.zip"
     extract_dir = job_dir / "extracted"
 
@@ -173,6 +173,6 @@ def cleanup_expired_jobs(*, ttl_minutes: int | None = None) -> list[str]:
 
     for job_id in expired_ids:
         cleanup_dir(_job_generated_dir(job_id))
-        cleanup_dir(_job_upload_dir(job_id))
+        cleanup_dir(job_upload_dir(job_id))
 
     return expired_ids

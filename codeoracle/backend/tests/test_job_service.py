@@ -2,20 +2,9 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from app.models.job import JobStatus
 from app.services import job_service
 from tests.helpers import make_zip
-
-
-@pytest.fixture
-def job_dirs(tmp_path, monkeypatch):
-    uploads = tmp_path / "uploads"
-    generated = tmp_path / "generated"
-    monkeypatch.setattr(job_service, "UPLOADS_DIR", uploads)
-    monkeypatch.setattr(job_service, "GENERATED_DIR", generated)
-    return uploads, generated
 
 
 def test_create_job_returns_unique_ids_with_queued_status():
