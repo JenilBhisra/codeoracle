@@ -32,8 +32,28 @@ def _parse_origin_list(raw: str) -> list[str]:
             parsed = []
         if isinstance(parsed, list):
             return [_normalize_origin(str(item)) for item in parsed if str(item).strip()]
+        return []
 
     return [_normalize_origin(origin) for origin in raw.split(",") if origin.strip()]
+
+
+# Always allowed regardless of FRONTEND_ORIGINS - local dev origins plus the
+# production frontend, so a missing, mistyped, or otherwise misconfigured env
+# var can never fully lock the real frontend out of the API.
+_ALWAYS_TRUSTED_ORIGINS = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://codeoracle-zeta.vercel.app",
+)
+
+
+def _effective_origins(raw: str) -> list[str]:
+    """Configured origins plus the always-trusted set, deduplicated and order-preserving."""
+    deduped: list[str] = []
+    for origin in [*_parse_origin_list(raw), *_ALWAYS_TRUSTED_ORIGINS]:
+        if origin and origin not in deduped:
+            deduped.append(origin)
+    return deduped
 
 
 class Settings(BaseSettings):
@@ -71,7 +91,7 @@ class Settings(BaseSettings):
 
     @property
     def frontend_origins_list(self) -> list[str]:
-        return _parse_origin_list(self.frontend_origins)
+        return _effective_origins(self.frontend_origins)
 
     @property
     def gemini_fallback_models_list(self) -> list[str]:
