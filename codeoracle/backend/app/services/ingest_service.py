@@ -28,9 +28,30 @@ def count_lines(file_path: Path) -> int:
         return sum(1 for _ in f)
 
 
+def _effective_root(root_dir: Path) -> Path:
+    """Collapse a single wrapping directory so relative paths (and the module
+    ids derived from them) reflect the project's real root.
+
+    GitHub's zip export always wraps a repo in a single `<repo>-<branch>/`
+    directory, and zipping a project folder directly (a very common manual
+    workflow) produces the same shape. Without this, every absolute import
+    inside the project fails to resolve against the internal module ids,
+    since the wrapper name is never part of the code's own import statements.
+    """
+    entries = [
+        entry
+        for entry in root_dir.iterdir()
+        if not entry.name.startswith(".") and not (entry.is_dir() and is_ignored_dir(entry.name))
+    ]
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return root_dir
+
+
 def discover_source_files(
     root_dir: Path, *, max_file_bytes: int, project_name: str | None = None
 ) -> IngestResult:
+    root_dir = _effective_root(root_dir)
     files: list[DiscoveredFile] = []
     skipped: list[str] = []
     languages: set[str] = set()

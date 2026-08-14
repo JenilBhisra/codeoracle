@@ -12,6 +12,7 @@ IGNORED_DIR_NAMES = {
     "build",
     "coverage",
     "vendor",
+    "__MACOSX",
 }
 
 # Suffixes checked against the full lowercased filename (catches multi-part

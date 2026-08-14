@@ -9,10 +9,10 @@ def test_process_zip_source_mixed_language_project(tmp_path):
     zip_path = make_zip(
         tmp_path / "project.zip",
         {
-            "project/app.py": "import os\nprint(os.getcwd())\n",
-            "project/util.js": "function add(a, b) {\n  return a + b;\n}\n",
-            "project/node_modules/pkg/index.js": "module.exports = {};\n",
-            "project/logo.png": "not really a png but has a png extension",
+            "app.py": "import os\nprint(os.getcwd())\n",
+            "util.js": "function add(a, b) {\n  return a + b;\n}\n",
+            "node_modules/pkg/index.js": "module.exports = {};\n",
+            "logo.png": "not really a png but has a png extension",
         },
     )
 
@@ -20,7 +20,21 @@ def test_process_zip_source_mixed_language_project(tmp_path):
 
     assert result.languages == ["javascript", "python"]
     paths = {f.path for f in result.files}
-    assert paths == {"project/app.py", "project/util.js"}
+    assert paths == {"app.py", "util.js"}
+
+
+def test_process_zip_source_collapses_github_style_wrapper_directory(tmp_path):
+    zip_path = make_zip(
+        tmp_path / "repo.zip",
+        {
+            "myrepo-main/app.py": "import os\n",
+            "myrepo-main/README.md": "# hi\n",
+        },
+    )
+
+    result = process_zip_source(zip_path, tmp_path / "extracted")
+
+    assert {f.path for f in result.files} == {"app.py"}
 
 
 def test_process_zip_source_respects_upload_size_setting(tmp_path, monkeypatch):

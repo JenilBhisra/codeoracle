@@ -5,6 +5,7 @@ from app.services.ingest_service import discover_source_files, enforce_line_limi
 
 
 def test_discover_source_files_finds_python_and_js(tmp_path):
+    (tmp_path / "README.md").write_text("# hi\n")
     (tmp_path / "app").mkdir()
     (tmp_path / "app" / "main.py").write_text("import os\nprint(os.getcwd())\n")
     (tmp_path / "app" / "util.js").write_text("function add(a, b) {\n  return a + b;\n}\n")
@@ -14,6 +15,28 @@ def test_discover_source_files_finds_python_and_js(tmp_path):
     assert result.languages == ["javascript", "python"]
     assert {f.path for f in result.files} == {"app/main.py", "app/util.js"}
     assert result.total_line_count == 5
+
+
+def test_discover_source_files_collapses_single_wrapper_directory(tmp_path):
+    (tmp_path / "myrepo-main").mkdir()
+    (tmp_path / "myrepo-main" / "app.py").write_text("import os\n")
+    (tmp_path / "myrepo-main" / "README.md").write_text("# hi\n")
+
+    result = discover_source_files(tmp_path, max_file_bytes=500_000)
+
+    assert {f.path for f in result.files} == {"app.py"}
+    assert result.root_dir == tmp_path / "myrepo-main"
+
+
+def test_discover_source_files_ignores_macosx_noise_when_collapsing(tmp_path):
+    (tmp_path / "myrepo-main").mkdir()
+    (tmp_path / "myrepo-main" / "app.py").write_text("print(1)\n")
+    (tmp_path / "__MACOSX").mkdir()
+    (tmp_path / "__MACOSX" / "._app.py").write_text("resource fork junk")
+
+    result = discover_source_files(tmp_path, max_file_bytes=500_000)
+
+    assert {f.path for f in result.files} == {"app.py"}
 
 
 def test_discover_source_files_skips_ignored_dirs(tmp_path):
