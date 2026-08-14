@@ -122,6 +122,26 @@ def test_call_gemini_gives_up_after_max_retries(monkeypatch):
         gemini_client.call_gemini("prompt")
 
 
+def test_call_gemini_uses_flat_rate_limit_backoff_not_exponential(monkeypatch):
+    """Rate limits need real wall-clock time to clear a per-minute quota, so
+    they get a distinct, much longer, flat backoff instead of the short
+    exponential curve used for timeouts."""
+    monkeypatch.setattr(settings, "gemini_max_retries", 3)
+    monkeypatch.setattr(settings, "gemini_rate_limit_backoff_seconds", 20)
+    sleep_calls = []
+    monkeypatch.setattr(gemini_client.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    def always_rate_limited(prompt):
+        raise GeminiRateLimitError("rate limited")
+
+    monkeypatch.setattr(gemini_client, "call_gemini_once", always_rate_limited)
+
+    with pytest.raises(GeminiRateLimitError):
+        gemini_client.call_gemini("prompt")
+
+    assert sleep_calls == [20, 20]
+
+
 def test_call_gemini_does_not_retry_non_transient_errors(monkeypatch):
     def broken(prompt):
         raise ValueError("something else entirely")

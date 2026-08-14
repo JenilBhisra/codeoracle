@@ -60,15 +60,23 @@ def call_gemini(prompt: str) -> str:
     """Rate-limited, retrying entry point - use this everywhere else.
 
     Limits concurrent in-flight requests with a semaphore (free-tier
-    friendly) and retries transient rate-limit/timeout failures with
-    exponential backoff before giving up.
+    friendly) and retries transient failures before giving up. Rate limits
+    (429) get a much longer, flat backoff than timeouts/5xx errors, since a
+    per-minute quota needs real wall-clock time to reset - the short
+    exponential backoff used for timeouts (a couple of seconds) never gives
+    a rate limit window a chance to clear, so every retry just fails the
+    same way again.
     """
     last_exc: Exception | None = None
     for attempt in range(settings.gemini_max_retries):
         try:
             with _semaphore:
                 return call_gemini_once(prompt)
-        except (GeminiRateLimitError, GeminiTimeoutError) as exc:
+        except GeminiRateLimitError as exc:
+            last_exc = exc
+            if attempt < settings.gemini_max_retries - 1:
+                time.sleep(settings.gemini_rate_limit_backoff_seconds)
+        except GeminiTimeoutError as exc:
             last_exc = exc
             if attempt < settings.gemini_max_retries - 1:
                 time.sleep(settings.gemini_retry_base_seconds * (2**attempt))

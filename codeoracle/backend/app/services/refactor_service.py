@@ -4,29 +4,32 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis, FileAnalysis
-from app.models.refactor import RefactorProposal, RefactorProposalResponse
+from app.models.refactor import RefactorChunkResponse, RefactorProposal
+from app.services.chunking import DEFAULT_MAX_CHUNK_CHARS, chunk_files_by_budget
 from app.services.gemini_structured import generate_structured
 from app.services.prompt_templates import build_structured_prompt
 
 NOT_CONFIGURED_WARNING = "Gemini is not configured (GEMINI_API_KEY/GEMINI_MODEL); refactor generation was skipped."
 
-REFACTOR_TASK = (
-    "Propose a modernized, refactored version of the ENTIRE source file "
-    "shown in `source_code` below (return real, complete source code - not "
-    "a diff or a partial snippet). Use the structured facts to understand "
-    "its current imports, functions, and classes. Preserve observable "
-    "behavior wherever possible. Explicitly check for and list ANY breaking "
-    "changes to: function names, parameters, return types, exceptions "
-    "raised, class names, module paths/imports, data formats, sync/async "
-    "behavior, environment variables, configuration, side effects, and "
-    "external API contracts - put every one you introduce in "
-    "`breaking_changes`, and list the matching categories (from the fixed "
-    "set given in the schema) in `impact_areas`. Explain in "
-    "`migration_notes` how a caller would need to adapt. Set `risk` to "
-    "\"low\", \"medium\", or \"high\" based on how much observable behavior "
-    "changes. This is a PROPOSAL ONLY that a human must review before "
-    "applying - it will never be applied automatically, and the original "
-    "file is never overwritten."
+REFACTOR_CHUNK_TASK = (
+    "For EACH file in the facts above, propose a modernized, refactored "
+    "version of the ENTIRE source file shown in its `source_code` (return "
+    "real, complete source code - not a diff or a partial snippet). Use the "
+    "structured facts to understand its current imports, functions, and "
+    "classes. Preserve observable behavior wherever possible. Explicitly "
+    "check for and list ANY breaking changes to: function names, "
+    "parameters, return types, exceptions raised, class names, module "
+    "paths/imports, data formats, sync/async behavior, environment "
+    "variables, configuration, side effects, and external API contracts - "
+    "put every one you introduce in `breaking_changes`, and list the "
+    "matching categories (from the fixed set given in the schema) in "
+    "`impact_areas`. Explain in `migration_notes` how a caller would need "
+    "to adapt. Set `risk` to \"low\", \"medium\", or \"high\" based on how "
+    "much observable behavior changes. Return one entry per file in "
+    "`files`, with `path` set to that file's `path` value from the facts. "
+    "This is a PROPOSAL ONLY that a human must review before applying - it "
+    "will never be applied automatically, and the original file is never "
+    "overwritten."
 )
 
 
@@ -38,67 +41,83 @@ def _read_source(root_dir: Path, file: FileAnalysis) -> str:
     return (root_dir / file.path).read_text(encoding="utf-8", errors="replace")
 
 
-def generate_refactor_for_file(root_dir: Path, file: FileAnalysis) -> tuple[RefactorProposal | None, str | None]:
-    if not file.functions and not file.classes:
-        return None, None
-
-    original_code = _read_source(root_dir, file)
-
-    schema = json.dumps(RefactorProposalResponse.model_json_schema())
+def generate_refactors_for_chunk(
+    files: list[FileAnalysis], sources: dict[str, str]
+) -> tuple[dict[str, RefactorProposal], str | None]:
+    """One Gemini call covering multiple files' refactor proposals at once."""
+    schema = json.dumps(RefactorChunkResponse.model_json_schema())
     facts = json.dumps(
-        {
-            "path": file.path,
-            "language": file.language,
-            "module": file.module,
-            "imports": [i.model_dump() for i in file.imports],
-            "functions": [f.model_dump() for f in file.functions],
-            "classes": [c.model_dump() for c in file.classes],
-            "source_code": original_code,
-        },
+        [
+            {
+                "path": file.path,
+                "language": file.language,
+                "module": file.module,
+                "imports": [i.model_dump() for i in file.imports],
+                "functions": [f.model_dump() for f in file.functions],
+                "classes": [c.model_dump() for c in file.classes],
+                "source_code": sources[file.path],
+            }
+            for file in files
+        ],
         indent=2,
     )
-    prompt = build_structured_prompt(schema_description=schema, facts_json=facts, task=REFACTOR_TASK)
+    prompt = build_structured_prompt(schema_description=schema, facts_json=facts, task=REFACTOR_CHUNK_TASK)
 
-    result, warning = generate_structured(prompt, RefactorProposalResponse)
+    result, warning = generate_structured(prompt, RefactorChunkResponse)
     if result is None:
-        return None, warning
+        return {}, warning
 
-    return (
-        RefactorProposal(
+    proposals_by_path = {
+        response.path: RefactorProposal(
             id=uuid.uuid4().hex[:10],
-            path=file.path,
-            language=file.language,
-            risk=result.risk,
-            summary=result.summary,
-            benefit=result.benefit,
-            breaking_changes=result.breaking_changes,
-            migration_notes=result.migration_notes,
-            assumptions=result.assumptions,
-            impact_areas=result.impact_areas,
+            path=response.path,
+            language=next((f.language for f in files if f.path == response.path), ""),
+            risk=response.risk,
+            summary=response.summary,
+            benefit=response.benefit,
+            breaking_changes=response.breaking_changes,
+            migration_notes=response.migration_notes,
+            assumptions=response.assumptions,
+            impact_areas=response.impact_areas,
             requires_human_review=True,
-            original_code=original_code,
-            refactored_code=result.refactored_code,
-        ),
-        None,
-    )
+            original_code=sources.get(response.path, ""),
+            refactored_code=response.refactored_code,
+        )
+        for response in result.files
+    }
+    return proposals_by_path, None
 
 
 def generate_refactors_for_project(
-    analysis: CodebaseAnalysis, root_dir: Path
+    analysis: CodebaseAnalysis, root_dir: Path, *, max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS
 ) -> tuple[list[RefactorProposal], list[str]]:
     if not _is_gemini_configured():
         return [], [NOT_CONFIGURED_WARNING]
 
+    refactorable = [f for f in analysis.files if f.syntax_error is None and (f.functions or f.classes)]
+    if not refactorable:
+        return [], []
+
+    sources = {file.path: _read_source(root_dir, file) for file in refactorable}
+
+    def _chunk_size(file: FileAnalysis) -> int:
+        return len(file.model_dump_json()) + len(sources[file.path])
+
+    chunks = chunk_files_by_budget(refactorable, max_chunk_chars=max_chunk_chars, size_of=_chunk_size)
+
     proposals: list[RefactorProposal] = []
     warnings: list[str] = []
 
-    for file in analysis.files:
-        if file.syntax_error is not None:
-            continue
-        proposal, warning = generate_refactor_for_file(root_dir, file)
-        if proposal is not None:
-            proposals.append(proposal)
+    for chunk in chunks:
+        proposals_by_path, warning = generate_refactors_for_chunk(chunk.files, sources)
         if warning:
-            warnings.append(f"{file.path}: {warning}")
+            warnings.append(f"{chunk.chunk_id}: {warning}")
+            continue
+        for file in chunk.files:
+            proposal = proposals_by_path.get(file.path)
+            if proposal is None:
+                warnings.append(f"{file.path}: Gemini did not return a refactor proposal for this path")
+                continue
+            proposals.append(proposal)
 
     return proposals, warnings

@@ -21,14 +21,15 @@ ImpactArea = Literal[
 ]
 
 
-class RefactorProposalResponse(BaseModel):
-    """Shape Gemini must return - narrative and judgment only.
+class RefactorFileResponse(BaseModel):
+    """Shape Gemini must return for one file's refactor proposal within a batched chunk call.
 
     `original_code` isn't asked of Gemini at all: we already have the real
     source on disk, so we attach it ourselves rather than trust a model to
     echo it back verbatim.
     """
 
+    path: str
     refactored_code: str
     summary: str
     benefit: str
@@ -37,6 +38,12 @@ class RefactorProposalResponse(BaseModel):
     migration_notes: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     impact_areas: list[ImpactArea] = Field(default_factory=list)
+
+
+class RefactorChunkResponse(BaseModel):
+    """Shape Gemini must return for one map-step call covering a chunk of files."""
+
+    files: list[RefactorFileResponse] = Field(default_factory=list)
 
 
 class RefactorProposal(BaseModel):

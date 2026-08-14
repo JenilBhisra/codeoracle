@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis
-from app.models.refactor import RefactorProposalResponse
+from app.models.refactor import RefactorFileResponse
 from app.services import refactor_service
 from app.services.python_analyzer import analyze_python_file
 
@@ -22,6 +22,7 @@ def _write_source(tmp_path, relative_path, content):
 
 def _fake_response(**overrides):
     defaults = dict(
+        path="app/mod.py",
         refactored_code="def f(a: int) -> int:\n    return a\n",
         summary="Add type hints",
         benefit="Better tooling support",
@@ -32,12 +33,13 @@ def _fake_response(**overrides):
         impact_areas=[],
     )
     defaults.update(overrides)
-    return RefactorProposalResponse(**defaults)
+    return RefactorFileResponse(**defaults)
 
 
 def test_risk_rejects_invalid_values():
     with pytest.raises(ValidationError):
-        RefactorProposalResponse(
+        RefactorFileResponse(
+            path="app/mod.py",
             refactored_code="x",
             summary="x",
             benefit="x",
@@ -50,17 +52,19 @@ def test_impact_areas_rejects_values_outside_fixed_categories():
         _fake_response(impact_areas=["Something not on the list"])
 
 
-def test_generate_refactor_for_file_returns_none_for_trivial_file(tmp_path):
+def test_generate_refactors_for_project_returns_nothing_for_trivial_file(tmp_path, monkeypatch):
+    _configure_gemini(monkeypatch)
     _write_source(tmp_path, "app/consts.py", "MAX_SIZE = 100\n")
     file = analyze_python_file("app/consts.py", "MAX_SIZE = 100\n", line_count=1)
+    analysis = CodebaseAnalysis(project_name="demo", languages=["python"], line_count=1, files=[file])
 
-    proposal, warning = refactor_service.generate_refactor_for_file(tmp_path, file)
+    proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
-    assert proposal is None
-    assert warning is None
+    assert proposals == []
+    assert warnings == []
 
 
-def test_generate_refactor_for_file_includes_real_source_in_prompt(tmp_path, monkeypatch):
+def test_generate_refactors_for_chunk_includes_real_source_in_prompt(tmp_path, monkeypatch):
     _configure_gemini(monkeypatch)
     source = "def distinctive_marker_fn(a, b):\n    return a - b\n"
     _write_source(tmp_path, "app/mod.py", source)
@@ -70,26 +74,39 @@ def test_generate_refactor_for_file_includes_real_source_in_prompt(tmp_path, mon
 
     def fake_generate_structured(prompt, response_model):
         seen_prompt["prompt"] = prompt
-        return _fake_response(), None
+        return _make_chunk_response([_fake_response()]), None
 
     monkeypatch.setattr(refactor_service, "generate_structured", fake_generate_structured)
 
-    refactor_service.generate_refactor_for_file(tmp_path, file)
+    refactor_service.generate_refactors_for_chunk([file], {"app/mod.py": source})
 
     assert "distinctive_marker_fn" in seen_prompt["prompt"]
 
 
-def test_generate_refactor_for_file_always_requires_human_review_and_keeps_original(tmp_path, monkeypatch):
+def _make_chunk_response(files):
+    from app.models.refactor import RefactorChunkResponse
+
+    return RefactorChunkResponse(files=files)
+
+
+def test_generate_refactors_for_project_always_requires_human_review_and_keeps_original(tmp_path, monkeypatch):
     _configure_gemini(monkeypatch)
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
+    analysis = CodebaseAnalysis(project_name="demo", languages=["python"], line_count=2, files=[file])
 
-    monkeypatch.setattr(refactor_service, "generate_structured", lambda prompt, response_model: (_fake_response(), None))
+    monkeypatch.setattr(
+        refactor_service,
+        "generate_structured",
+        lambda prompt, response_model: (_make_chunk_response([_fake_response()]), None),
+    )
 
-    proposal, warning = refactor_service.generate_refactor_for_file(tmp_path, file)
+    proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
-    assert warning is None
+    assert warnings == []
+    assert len(proposals) == 1
+    proposal = proposals[0]
     assert proposal.id
     assert proposal.requires_human_review is True
     assert proposal.path == "app/mod.py"
@@ -97,18 +114,19 @@ def test_generate_refactor_for_file_always_requires_human_review_and_keeps_origi
     assert proposal.original_code == source
 
 
-def test_generate_refactor_for_file_returns_warning_on_failure(tmp_path, monkeypatch):
+def test_generate_refactors_for_project_returns_warning_on_chunk_failure(tmp_path, monkeypatch):
     _configure_gemini(monkeypatch)
     source = "def f(a):\n    return a\n"
     _write_source(tmp_path, "app/mod.py", source)
     file = analyze_python_file("app/mod.py", source, line_count=2)
+    analysis = CodebaseAnalysis(project_name="demo", languages=["python"], line_count=2, files=[file])
 
     monkeypatch.setattr(refactor_service, "generate_structured", lambda prompt, response_model: (None, "boom"))
 
-    proposal, warning = refactor_service.generate_refactor_for_file(tmp_path, file)
+    proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
-    assert proposal is None
-    assert warning == "boom"
+    assert proposals == []
+    assert any("boom" in w for w in warnings)
 
 
 def test_generate_refactors_for_project_skips_when_not_configured(tmp_path, monkeypatch):
@@ -135,7 +153,11 @@ def test_generate_refactors_for_project_skips_files_with_syntax_errors(tmp_path,
         project_name="demo", languages=["python"], line_count=3, files=[good, broken]
     )
 
-    monkeypatch.setattr(refactor_service, "generate_structured", lambda prompt, response_model: (_fake_response(), None))
+    monkeypatch.setattr(
+        refactor_service,
+        "generate_structured",
+        lambda prompt, response_model: (_make_chunk_response([_fake_response(path="app/good.py")]), None),
+    )
 
     proposals, _warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
 
@@ -143,7 +165,7 @@ def test_generate_refactors_for_project_skips_files_with_syntax_errors(tmp_path,
     assert proposals[0].path == "app/good.py"
 
 
-def test_generate_refactors_for_project_continues_when_one_file_fails(tmp_path, monkeypatch):
+def test_generate_refactors_for_project_continues_when_one_chunk_fails(tmp_path, monkeypatch):
     _configure_gemini(monkeypatch)
     source_a = "def a():\n    return 1\n"
     source_b = "def b():\n    return 2\n"
@@ -156,12 +178,13 @@ def test_generate_refactors_for_project_continues_when_one_file_fails(tmp_path, 
     def fake_generate_structured(prompt, response_model):
         if "app/a.py" in prompt:
             return None, "generation failed"
-        return _fake_response(), None
+        return _make_chunk_response([_fake_response(path="app/b.py")]), None
 
     monkeypatch.setattr(refactor_service, "generate_structured", fake_generate_structured)
 
-    proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path)
+    # tiny budget forces one file per chunk, so file_a's chunk fails independently of file_b's
+    proposals, warnings = refactor_service.generate_refactors_for_project(analysis, tmp_path, max_chunk_chars=1)
 
     assert len(proposals) == 1
     assert proposals[0].path == "app/b.py"
-    assert any("app/a.py" in w and "generation failed" in w for w in warnings)
+    assert any("generation failed" in w for w in warnings)

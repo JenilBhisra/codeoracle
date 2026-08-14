@@ -86,18 +86,23 @@ def test_run_job_pipeline_reads_correct_source_for_refactor_with_wrapper_directo
     )
 
     from app.models.explanation import ChunkExplanationResult
-    from app.models.refactor import RefactorProposalResponse
+    from app.models.refactor import RefactorChunkResponse, RefactorFileResponse
 
     def fake_generate_structured(prompt, response_model):
         if response_model is ChunkExplanationResult:
             return ChunkExplanationResult(modules=[]), None
-        if response_model is RefactorProposalResponse:
+        if response_model is RefactorChunkResponse:
             return (
-                RefactorProposalResponse(
-                    refactored_code="def f(a: int) -> int:\n    return a\n",
-                    summary="add types",
-                    benefit="clearer intent",
-                    risk="low",
+                RefactorChunkResponse(
+                    files=[
+                        RefactorFileResponse(
+                            path="app.py",
+                            refactored_code="def f(a: int) -> int:\n    return a\n",
+                            summary="add types",
+                            benefit="clearer intent",
+                            risk="low",
+                        )
+                    ]
                 ),
                 None,
             )

@@ -1,6 +1,6 @@
 from app.core.config import settings
 from app.models.codebase import CodebaseAnalysis
-from app.models.tests import GeneratedTestResponse
+from app.models.tests import GeneratedTestChunkResponse, GeneratedTestFileResponse
 from app.services import test_generation_service
 from app.services.js_analyzer import analyze_javascript_file
 from app.services.python_analyzer import analyze_python_file
@@ -80,54 +80,53 @@ def test_select_priority_functions_uses_branch_count_as_tiebreaker():
     assert ranked[0].name == "branchy"
 
 
-# --- generate_tests_for_file --------------------------------------------
+# --- generate_tests_for_chunk --------------------------------------------
 
 
-def test_generate_tests_for_file_returns_none_for_file_with_no_functions():
-    file = analyze_python_file("app/empty.py", "x = 1\n", line_count=1)
-
-    result, warning = test_generation_service.generate_tests_for_file(file, framework="pytest")
-
-    assert result is None
-    assert warning is None
-
-
-def test_generate_tests_for_file_returns_generated_test(monkeypatch):
+def test_generate_tests_for_chunk_returns_result_keyed_by_target_file(monkeypatch):
     _configure_gemini(monkeypatch)
     file = analyze_python_file("app/mod.py", "def add(a, b):\n    return a + b\n", line_count=2)
+    functions = test_generation_service.select_priority_functions(file)
 
     monkeypatch.setattr(
         test_generation_service,
         "generate_structured",
         lambda prompt, response_model: (
-            GeneratedTestResponse(
-                filename="test_mod.py",
-                code="def test_add(): pass",
-                covered_functions=["add"],
-                types=["happy_path"],
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file="app/mod.py",
+                        filename="test_mod.py",
+                        code="def test_add(): pass",
+                        covered_functions=["add"],
+                        types=["happy_path"],
+                    )
+                ]
             ),
             None,
         ),
     )
 
-    result, warning = test_generation_service.generate_tests_for_file(file, framework="pytest")
+    files_by_path, warning = test_generation_service.generate_tests_for_chunk([(file, functions)], framework="pytest")
 
     assert warning is None
+    result = files_by_path["app/mod.py"]
     assert result.id
     assert result.filename == "test_mod.py"
     assert result.framework == "pytest"
     assert result.types == ["happy_path"]
 
 
-def test_generate_tests_for_file_returns_warning_on_generation_failure(monkeypatch):
+def test_generate_tests_for_chunk_returns_warning_on_generation_failure(monkeypatch):
     _configure_gemini(monkeypatch)
     file = analyze_python_file("app/mod.py", "def add(a, b):\n    return a + b\n", line_count=2)
+    functions = test_generation_service.select_priority_functions(file)
 
     monkeypatch.setattr(test_generation_service, "generate_structured", lambda prompt, response_model: (None, "boom"))
 
-    result, warning = test_generation_service.generate_tests_for_file(file, framework="pytest")
+    files_by_path, warning = test_generation_service.generate_tests_for_chunk([(file, functions)], framework="pytest")
 
-    assert result is None
+    assert files_by_path == {}
     assert warning == "boom"
 
 
@@ -146,20 +145,30 @@ def test_generate_tests_for_project_skips_when_not_configured(monkeypatch):
     assert "not configured" in warnings[0].lower()
 
 
-def test_generate_tests_for_project_skips_files_with_syntax_errors(monkeypatch):
+def test_generate_tests_for_project_skips_files_with_no_functions_and_syntax_errors(monkeypatch):
     _configure_gemini(monkeypatch)
-    good = analyze_python_file("app/good.py", "def f():\n    pass\n", line_count=2)
+    empty = analyze_python_file("app/empty.py", "x = 1\n", line_count=1)
     broken = analyze_python_file("app/broken.py", "def broken(:", line_count=1)
+    good = analyze_python_file("app/good.py", "def f():\n    pass\n", line_count=2)
 
     calls = []
-    monkeypatch.setattr(
-        test_generation_service,
-        "generate_structured",
-        lambda prompt, response_model: calls.append(1)
-        or (GeneratedTestResponse(filename="test_good.py", code="pass", covered_functions=["f"]), None),
-    )
 
-    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([good, broken]))
+    def fake_generate_structured(prompt, response_model):
+        calls.append(1)
+        return (
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file="app/good.py", filename="test_good.py", code="pass", covered_functions=["f"]
+                    )
+                ]
+            ),
+            None,
+        )
+
+    monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
+
+    result, _warnings = test_generation_service.generate_tests_for_project(_analysis([empty, broken, good]))
 
     assert len(result.files) == 1
     assert result.files[0].target_file == "app/good.py"
@@ -171,14 +180,20 @@ def test_generate_tests_for_project_uses_pytest_for_python_and_vitest_for_js(mon
     py_file = analyze_python_file("app/mod.py", "def f():\n    pass\n", line_count=2)
     js_file = analyze_javascript_file("src/mod.js", "export function f() { return 1; }\n", line_count=1)
 
-    monkeypatch.setattr(
-        test_generation_service,
-        "generate_structured",
-        lambda prompt, response_model: (
-            GeneratedTestResponse(filename="test.file", code="pass", covered_functions=["f"]),
+    def fake_generate_structured(prompt, response_model):
+        target = "app/mod.py" if "app/mod.py" in prompt else "src/mod.js"
+        return (
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file=target, filename="test.file", code="pass", covered_functions=["f"]
+                    )
+                ]
+            ),
             None,
-        ),
-    )
+        )
+
+    monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
 
     result, _warnings = test_generation_service.generate_tests_for_project(_analysis([py_file, js_file]))
 
@@ -188,7 +203,7 @@ def test_generate_tests_for_project_uses_pytest_for_python_and_vitest_for_js(mon
     assert result.framework == "pytest + vitest"
 
 
-def test_generate_tests_for_project_continues_when_one_file_fails(monkeypatch):
+def test_generate_tests_for_project_continues_when_one_chunk_fails(monkeypatch):
     _configure_gemini(monkeypatch)
     file_a = analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2)
     file_b = analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2)
@@ -196,15 +211,25 @@ def test_generate_tests_for_project_continues_when_one_file_fails(monkeypatch):
     def fake_generate_structured(prompt, response_model):
         if "app/a.py" in prompt:
             return None, "generation failed"
-        return GeneratedTestResponse(filename="test_b.py", code="pass", covered_functions=["b"]), None
+        return (
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file="app/b.py", filename="test_b.py", code="pass", covered_functions=["b"]
+                    )
+                ]
+            ),
+            None,
+        )
 
     monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
 
-    result, warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]))
+    # tiny budget forces one file per chunk, so file_a's chunk fails independently of file_b's
+    result, warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]), max_chunk_chars=1)
 
     assert len(result.files) == 1
     assert result.files[0].target_file == "app/b.py"
-    assert any("app/a.py" in w and "generation failed" in w for w in warnings)
+    assert any("generation failed" in w for w in warnings)
 
 
 def test_coverage_label_is_never_measured(monkeypatch):
@@ -215,7 +240,13 @@ def test_coverage_label_is_never_measured(monkeypatch):
         test_generation_service,
         "generate_structured",
         lambda prompt, response_model: (
-            GeneratedTestResponse(filename="test_mod.py", code="pass", covered_functions=["f"]),
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file="app/mod.py", filename="test_mod.py", code="pass", covered_functions=["f"]
+                    )
+                ]
+            ),
             None,
         ),
     )
@@ -230,20 +261,31 @@ def test_breakdown_counts_files_per_type(monkeypatch):
     file_a = analyze_python_file("app/a.py", "def a():\n    pass\n", line_count=2)
     file_b = analyze_python_file("app/b.py", "def b():\n    pass\n", line_count=2)
 
-    def fake_generate_structured(prompt, response_model):
-        if "app/a.py" in prompt:
-            return (
-                GeneratedTestResponse(
-                    filename="test_a.py", code="pass", covered_functions=["a"], types=["happy_path", "edge_case"]
-                ),
-                None,
-            )
-        return (
-            GeneratedTestResponse(filename="test_b.py", code="pass", covered_functions=["b"], types=["happy_path"]),
+    monkeypatch.setattr(
+        test_generation_service,
+        "generate_structured",
+        lambda prompt, response_model: (
+            GeneratedTestChunkResponse(
+                files=[
+                    GeneratedTestFileResponse(
+                        target_file="app/a.py",
+                        filename="test_a.py",
+                        code="pass",
+                        covered_functions=["a"],
+                        types=["happy_path", "edge_case"],
+                    ),
+                    GeneratedTestFileResponse(
+                        target_file="app/b.py",
+                        filename="test_b.py",
+                        code="pass",
+                        covered_functions=["b"],
+                        types=["happy_path"],
+                    ),
+                ]
+            ),
             None,
-        )
-
-    monkeypatch.setattr(test_generation_service, "generate_structured", fake_generate_structured)
+        ),
+    )
 
     result, _warnings = test_generation_service.generate_tests_for_project(_analysis([file_a, file_b]))
 

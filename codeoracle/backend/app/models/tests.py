@@ -6,14 +6,21 @@ TestType = Literal["happy_path", "edge_case", "error_case", "mocked_dependency"]
 CoverageLabel = Literal["measured", "estimated", "not_executed"]
 
 
-class GeneratedTestResponse(BaseModel):
-    """Shape Gemini must return for one file's generated test suite."""
+class GeneratedTestFileResponse(BaseModel):
+    """Shape Gemini must return for one file's test suite within a batched chunk call."""
 
+    target_file: str
     filename: str
     code: str
     covered_functions: list[str] = Field(default_factory=list)
     types: list[TestType] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
+
+
+class GeneratedTestChunkResponse(BaseModel):
+    """Shape Gemini must return for one map-step call covering a chunk of files."""
+
+    files: list[GeneratedTestFileResponse] = Field(default_factory=list)
 
 
 class GeneratedTestFile(BaseModel):

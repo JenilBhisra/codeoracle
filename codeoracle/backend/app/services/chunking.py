@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.models.codebase import FileAnalysis
@@ -16,7 +17,10 @@ def _file_size_estimate(file: FileAnalysis) -> int:
 
 
 def chunk_files_by_budget(
-    files: list[FileAnalysis], *, max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS
+    files: list[FileAnalysis],
+    *,
+    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+    size_of: Callable[[FileAnalysis], int] = _file_size_estimate,
 ) -> list[FileChunk]:
     """Group files for map-reduce style LLM processing.
 
@@ -26,6 +30,11 @@ def chunk_files_by_budget(
     proxy for a token budget, cheap to compute and good enough for
     hackathon-scale projects. A single file that alone exceeds the budget
     still gets its own chunk rather than being dropped.
+
+    `size_of` defaults to estimating from the structural facts alone; callers
+    that also embed full source text in the prompt (refactor generation)
+    should pass an estimator that accounts for that too, or chunks will be
+    sized far smaller than the real prompt payload.
     """
     sorted_files = sorted(files, key=lambda f: f.path)
 
@@ -34,7 +43,7 @@ def chunk_files_by_budget(
     current_size = 0
 
     for file in sorted_files:
-        file_size = _file_size_estimate(file)
+        file_size = size_of(file)
 
         if current_files and current_size + file_size > max_chunk_chars:
             chunks.append(FileChunk(chunk_id=f"chunk-{len(chunks)}", files=current_files))

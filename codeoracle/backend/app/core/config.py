@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = 30.0
     gemini_max_retries: int = 3
     gemini_retry_base_seconds: float = 1.0
+    gemini_rate_limit_backoff_seconds: float = 20.0
     gemini_max_concurrency: int = 2
 
     # Upload / processing limits
