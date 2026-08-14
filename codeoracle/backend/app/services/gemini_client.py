@@ -10,7 +10,10 @@ from app.core.config import settings
 from app.core.exceptions import GeminiNotConfiguredError, GeminiRateLimitError, GeminiTimeoutError
 
 _RATE_LIMIT_CODE = 429
-_TIMEOUT_CODES = {408, 504}
+# 408/504 are literal timeouts; 500/502/503 are Gemini-side server errors
+# that are also transient by nature (Gemini's own 503 message says as much:
+# "usually temporary... please try again later") - all treated as retryable.
+_TRANSIENT_SERVER_CODES = {408, 500, 502, 503, 504}
 
 _semaphore = threading.Semaphore(settings.gemini_max_concurrency)
 
@@ -39,8 +42,8 @@ def call_gemini_once(prompt: str) -> str:
     except genai_errors.APIError as exc:
         if exc.code == _RATE_LIMIT_CODE:
             raise GeminiRateLimitError("Gemini rate limit reached. Please try again later.") from exc
-        if exc.code in _TIMEOUT_CODES:
-            raise GeminiTimeoutError("Timed out while calling Gemini.") from exc
+        if exc.code in _TRANSIENT_SERVER_CODES:
+            raise GeminiTimeoutError("Gemini is temporarily unavailable.") from exc
         raise
     except httpx.HTTPError as exc:
         # Transport-level failures (read timeout, connection reset, DNS) never

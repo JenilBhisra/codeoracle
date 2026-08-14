@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from google.genai import errors as genai_errors
 
 from app.core.config import settings
 from app.core.exceptions import GeminiNotConfiguredError, GeminiRateLimitError, GeminiTimeoutError
@@ -34,6 +35,38 @@ def test_call_gemini_once_translates_httpx_connect_error(monkeypatch):
     monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(httpx.ConnectError("refused")))
 
     with pytest.raises(GeminiTimeoutError):
+        gemini_client.call_gemini_once("hello")
+
+
+def _api_error(code: int) -> genai_errors.APIError:
+    return genai_errors.APIError(code, {"error": {"message": "boom", "status": "ERROR"}})
+
+
+def test_call_gemini_once_translates_rate_limit_api_error(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(_api_error(429)))
+
+    with pytest.raises(GeminiRateLimitError):
+        gemini_client.call_gemini_once("hello")
+
+
+@pytest.mark.parametrize("code", [408, 500, 502, 503, 504])
+def test_call_gemini_once_translates_transient_server_api_errors(monkeypatch, code):
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(_api_error(code)))
+
+    with pytest.raises(GeminiTimeoutError):
+        gemini_client.call_gemini_once("hello")
+
+
+def test_call_gemini_once_reraises_non_transient_api_error(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    monkeypatch.setattr(settings, "gemini_api_key", "fake-key")
+    monkeypatch.setattr(gemini_client.genai, "Client", lambda **kwargs: _FakeClient(_api_error(400)))
+
+    with pytest.raises(genai_errors.APIError):
         gemini_client.call_gemini_once("hello")
 
 
